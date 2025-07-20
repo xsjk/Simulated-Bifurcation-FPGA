@@ -25,5 +25,5 @@ set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN P16} [get_ports {BTNC}]
 set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN N15} [get_ports {BTNL}]
 
 # Allow loop for ring oscillator
-set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets -hierarchical */rand_i/rand_raw_i/ros[*].ro/w*]
+set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets */calculate_dynamics[*].*/rand_i/rand_raw_i/ros[*].ro/w*]
 

@@ -6,6 +6,10 @@ module ring_oscillator #(
 	output OUT
 );
 
+if (STAGE % 2 == 0) begin
+    $error("STAGE (%d) must be odd", STAGE);
+end
+
 (* dont_touch = "true" *) wire [STAGE:0] w;
 
 assign w[0] = w[STAGE];

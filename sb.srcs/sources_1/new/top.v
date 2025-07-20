@@ -19,16 +19,15 @@ wire [9:0]BRAM_addr;
 wire [31:0]BRAM_din;
 wire BRAM_en;
 wire [3:0]BRAM_we;
-wire CLK;
 
-assign request_start = BTNC;
-assign rst = BTNR;
-assign LED = {7'b1111111, stopped};
+wire blink_wire;
+
+assign rst = BTNC;
+assign LED = {6'b111111, blink_wire, stopped};
 
 block_sSB block_sSB_i (
     .clk            (clk),
-    .rst            (rst),
-    .request_start  (request_start),
+    .request_start  (rst),
     .stopped        (stopped),
 
     .BRAM_addr      (BRAM_addr),
@@ -39,12 +38,19 @@ block_sSB block_sSB_i (
 
 ps_with_bram ps_with_bram_i (
     .BRAM_addr  (BRAM_addr),
-    .BRAM_clk   (BRAM_clk),
+    .BRAM_clk   (clk),
     .BRAM_din   (BRAM_din),
     .BRAM_dout  (),
     .BRAM_en    (BRAM_en),
     .BRAM_we    (BRAM_we),
-    .CLK        (CLK)
+    .CLK        (clk)
+);
+
+
+blink blink_i (
+    .clk    (clk),
+    .rst    (rst),
+    .out    (blink_wire)
 );
 
 endmodule

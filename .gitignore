@@ -6,3 +6,6 @@
 *.sim
 
 .Xil/
+
+# Generated hardware
+*.xsa

@@ -15,7 +15,6 @@ module J_block_bram_loader #(
 )
 (
     input wire clk,
-    input wire rst,
     input wire [BLOCK_IDX_WIDTH-1:0] i,
     input wire [BLOCK_IDX_WIDTH-1:0] j,
     output wire [0:BLOCK_DATA_WIDTH-1] out_ij,

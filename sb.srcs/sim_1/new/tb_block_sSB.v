@@ -9,7 +9,6 @@ reg clk = 0;
 always #(CLOCK_PERIOD / 2) clk = ~clk;
 
 // Testbench signals
-reg rst = 0;
 reg request_start = 0;
 wire stopped;
 wire [9:0] BRAM_addr;
@@ -57,7 +56,6 @@ block_sSB #(
 //   .K_G     (3)
 ) uut (
     .clk            (clk),
-    .rst            (rst),
     .request_start  (request_start),
     .stopped        (stopped),
 
@@ -71,13 +69,11 @@ reg wait_for_stop;
 
 initial begin
     // Initialize inputs
-    rst = 1;
     request_start = 0;
 
 
     // Wait for a few clock cycles
     #(CLOCK_PERIOD * 2);
-    rst = 0; // Release reset
     #(CLOCK_PERIOD * 2);
     request_start = 1; // Start the block_sSB operation
     #(CLOCK_PERIOD * 10); // Wait for some time to observe behavior

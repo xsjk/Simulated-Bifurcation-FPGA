@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0x7C39DABE7C06A7C7",
+      "boundary_crc": "0x7C39DABEB998A786",
       "device": "xc7z020clg484-1",
       "gen_directory": "../../../../sb.gen/sources_1/bd/ps_with_bram",
       "name": "ps_with_bram",
@@ -91,7 +91,7 @@
             "value_src": "default_prop"
           },
           "FREQ_HZ": {
-            "value": "250000000",
+            "value": "30303030",
             "value_src": "user_prop"
           },
           "FREQ_TOLERANCE_HZ": {
@@ -133,7 +133,7 @@
             "value": "10.000000"
           },
           "PCW_ACT_FPGA0_PERIPHERAL_FREQMHZ": {
-            "value": "250.000000"
+            "value": "30.303030"
           },
           "PCW_ACT_FPGA1_PERIPHERAL_FREQMHZ": {
             "value": "10.000000"
@@ -205,7 +205,7 @@
             "value": "1"
           },
           "PCW_CLK0_FREQ": {
-            "value": "250000000"
+            "value": "30303030"
           },
           "PCW_CLK1_FREQ": {
             "value": "10000000"
@@ -277,7 +277,7 @@
             "value": "1"
           },
           "PCW_FPGA0_PERIPHERAL_FREQMHZ": {
-            "value": "250"
+            "value": "30"
           },
           "PCW_FPGA_FCLK0_ENABLE": {
             "value": "1"
@@ -1210,10 +1210,10 @@
         "vlnv": "xilinx.com:inline_hdl:ilslice:1.0",
         "parameters": {
           "DIN_FROM": {
-            "value": "9"
+            "value": "11"
           },
           "DIN_TO": {
-            "value": "0"
+            "value": "2"
           },
           "DIN_WIDTH": {
             "value": "12"

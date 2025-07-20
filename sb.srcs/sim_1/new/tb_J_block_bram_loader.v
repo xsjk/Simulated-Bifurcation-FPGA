@@ -53,7 +53,6 @@ J_block_bram_loader #(
     .BLOCK_SIZE     (BLOCK_SIZE)
 ) uut (
     .clk    (clk),
-    .rst    (rst),
     .i      (next_i),
     .j      (next_j),
     .out_ij (block_data),
