@@ -47,13 +47,22 @@ block_sSB #(
     .K_X     (1),
     .K_Y     (8),
     .K_G     (9)
-//   .STEPS   (1000),
-//   .K_BETA  (9),
-//   .K_XI    (6),
-//   .K_ETA   (1),
-//   .K_X     (1),
-//   .K_Y     (3),
-//   .K_G     (3)
+
+    // .STEPS   (1000),
+    // .K_BETA  (9),
+    // .K_XI    (6),
+    // .K_ETA   (1),
+    // .K_X     (1),
+    // .K_Y     (3),
+    // .K_G     (3)
+    
+    // .STEPS   (150),
+    // .K_BETA  (6),
+    // .K_XI    (6),
+    // .K_ETA   (1),
+    // .K_X     (1),
+    // .K_Y     (3),
+    // .K_G     (3)
 ) uut (
     .clk            (clk),
     .request_start  (request_start),

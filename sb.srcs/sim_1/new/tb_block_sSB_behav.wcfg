@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wave_config>
+   <wave_state>
+   </wave_state>
+   <db_ref_list>
+      <db_ref path="tb_block_sSB_behav.wdb" id="1">
+         <top_modules>
+            <top_module name="glbl" />
+            <top_module name="tb_block_sSB" />
+         </top_modules>
+      </db_ref>
+   </db_ref_list>
+   <zoom_setting>
+      <ZoomStartTime time="315,651.000 ns"></ZoomStartTime>
+      <ZoomEndTime time="315,684.101 ns"></ZoomEndTime>
+      <Cursor1Time time="315,596.200 ns"></Cursor1Time>
+   </zoom_setting>
+   <column_width_setting>
+      <NameColumnWidth column_width="139"></NameColumnWidth>
+      <ValueColumnWidth column_width="123"></ValueColumnWidth>
+   </column_width_setting>
+   <WVObjectSize size="18" />
+   <wvobject type="logic" fp_name="/tb_block_sSB/clk">
+      <obj_property name="ElementShortName">clk</obj_property>
+      <obj_property name="ObjectShortName">clk</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_block_sSB/request_start">
+      <obj_property name="ElementShortName">request_start</obj_property>
+      <obj_property name="ObjectShortName">request_start</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_block_sSB/stopped">
+      <obj_property name="ElementShortName">stopped</obj_property>
+      <obj_property name="ObjectShortName">stopped</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/BRAM_addr">
+      <obj_property name="ElementShortName">BRAM_addr[9:0]</obj_property>
+      <obj_property name="ObjectShortName">BRAM_addr[9:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/BRAM_din">
+      <obj_property name="ElementShortName">BRAM_din[31:0]</obj_property>
+      <obj_property name="ObjectShortName">BRAM_din[31:0]</obj_property>
+      <obj_property name="Radix">HEXRADIX</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_block_sSB/BRAM_en">
+      <obj_property name="ElementShortName">BRAM_en</obj_property>
+      <obj_property name="ObjectShortName">BRAM_en</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/BRAM_we">
+      <obj_property name="ElementShortName">BRAM_we[3:0]</obj_property>
+      <obj_property name="ObjectShortName">BRAM_we[3:0]</obj_property>
+      <obj_property name="Radix">BINARYRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/read_data">
+      <obj_property name="ElementShortName">read_data[31:0]</obj_property>
+      <obj_property name="ObjectShortName">read_data[31:0]</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/read_index">
+      <obj_property name="ElementShortName">read_index[9:0]</obj_property>
+      <obj_property name="ObjectShortName">read_index[9:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/read_index_next">
+      <obj_property name="ElementShortName">read_index_next[9:0]</obj_property>
+      <obj_property name="ObjectShortName">read_index_next[9:0]</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_block_sSB/wait_for_stop">
+      <obj_property name="ElementShortName">wait_for_stop</obj_property>
+      <obj_property name="ObjectShortName">wait_for_stop</obj_property>
+   </wvobject>
+   <wvobject type="logic" fp_name="/tb_block_sSB/is_reading">
+      <obj_property name="ElementShortName">is_reading</obj_property>
+      <obj_property name="ObjectShortName">is_reading</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/uut/write_begin">
+      <obj_property name="ElementShortName">write_begin[10:0]</obj_property>
+      <obj_property name="ObjectShortName">write_begin[10:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/uut/write_end">
+      <obj_property name="ElementShortName">write_end[11:0]</obj_property>
+      <obj_property name="ObjectShortName">write_end[11:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/uut/read_begin">
+      <obj_property name="ElementShortName">read_begin[10:0]</obj_property>
+      <obj_property name="ObjectShortName">read_begin[10:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/uut/read_end">
+      <obj_property name="ElementShortName">read_end[11:0]</obj_property>
+      <obj_property name="ObjectShortName">read_end[11:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/uut/read_offset">
+      <obj_property name="ElementShortName">read_offset[7:0]</obj_property>
+      <obj_property name="ObjectShortName">read_offset[7:0]</obj_property>
+      <obj_property name="Radix">SIGNEDDECRADIX</obj_property>
+   </wvobject>
+   <wvobject type="array" fp_name="/tb_block_sSB/uut/step">
+      <obj_property name="ElementShortName">step[5:0]</obj_property>
+      <obj_property name="ObjectShortName">step[5:0]</obj_property>
+      <obj_property name="Radix">UNSIGNEDDECRADIX</obj_property>
+   </wvobject>
+</wave_config>

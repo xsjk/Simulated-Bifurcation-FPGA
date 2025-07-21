@@ -21,7 +21,7 @@ end
 genvar i;
 generate
     for (i = 0; i < WIDTH; i = i + 1) begin : gen_bram_units
-        lutram_unit lutram_unit_inst (
+        lutram_unit lutram_unit_i (
             .a      ({{(UNIT_ADDR_WIDTH-ADDR_WIDTH){1'b0}}, addr}),
             .clk    (clk),
             .d      (din[i]),

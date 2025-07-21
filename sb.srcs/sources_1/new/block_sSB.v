@@ -6,8 +6,6 @@ module block_sSB  #(
     parameter STEPS = 50000,
     
     parameter N_BLOCK_PER_ROW = N / BLOCK_SIZE, // Number of blocks per row
-    parameter BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW), // Width for block indices
-    parameter BLOCK_DATA_WIDTH = BLOCK_SIZE * BLOCK_SIZE,
     
     parameter K_N = $clog2(N+1),                // Width for N
     parameter K_BLOCK = $clog2(BLOCK_SIZE+1),   // Width for block size
@@ -19,15 +17,18 @@ module block_sSB  #(
     parameter K_G = 3,                          // |g| < 2^(K_G)
     parameter K_ALPHA = 2,                      // |sum(J_ij * x_i)| < 2^(-K_ALPHA) * N
 
-    parameter STEP_WIDTH = $clog2(STEPS),           // Width for step
-    parameter BLOCK_MUL_WIDTH = 1 + K_BLOCK,        // Width for sum(J_ij * x_i) on block level
-    parameter MUL_WIDTH = 1 + K_N - K_ALPHA,        // Width for sum(J_ij * x_i)
-    parameter X_WIDTH = 1 + K_X + K_ETA,            // Width for x
-    parameter Y_WIDTH = 1 + K_Y + K_ETA,            // Width for y
-    parameter G_WIDTH = 1 + K_G + (2*K_ETA+K_BETA), // Width for g
-    parameter X_HAT_WIDTH = 1 + K_X,                // Width for x_hat
-    parameter Y_HAT_WIDTH = 1 + K_Y,                // Width for y_hat
-    parameter G_HAT_WIDTH = 1 + K_G,                // Width for g_hat
+    parameter BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW),    // Width for block indices
+    parameter BLOCK_DATA_WIDTH = BLOCK_SIZE * BLOCK_SIZE,   // Width for flattened block data
+    parameter LOCAL_IDX_WIDTH = $clog2(BLOCK_SIZE),         // Width for inner block index
+    parameter STEP_WIDTH = $clog2(STEPS),                   // Width for step
+    parameter BLOCK_MUL_WIDTH = 1 + K_BLOCK,                // Width for sum(J_ij * x_i) on block level
+    parameter MUL_WIDTH = 1 + K_N - K_ALPHA,                // Width for sum(J_ij * x_i)
+    parameter X_WIDTH = 1 + K_X + K_ETA,                    // Width for x
+    parameter Y_WIDTH = 1 + K_Y + K_ETA,                    // Width for y
+    parameter G_WIDTH = 1 + K_G + (2*K_ETA+K_BETA),         // Width for g
+    parameter X_HAT_WIDTH = 1 + K_X,                        // Width for x_hat
+    parameter Y_HAT_WIDTH = 1 + K_Y,                        // Width for y_hat
+    parameter G_HAT_WIDTH = 1 + K_G,                        // Width for g_hat
     
     parameter X_NEXT_WIDTH = 1 + ((X_HAT_WIDTH > Y_HAT_WIDTH) ? X_HAT_WIDTH : Y_HAT_WIDTH), // Width for x + y_hat
 
@@ -60,6 +61,14 @@ if (K_X != 1) begin
     $error("K_X (%d) must be equal to 1 since x is always in the range [-1, 1]", K_X);
 end
 
+if (OUT_BRAM_DEPTH < $clog2((N-1)/OUT_BRAM_WIDTH+1)) begin
+    $error("OUT_BRAM_DEPTH (%d) is not sufficient for N (%d) bits.", OUT_BRAM_DEPTH, N);
+end
+
+if (BLOCK_SIZE < OUT_BRAM_WIDTH) begin
+    $error("BLOCK_SIZE (%d) must be greater than or equal to OUT_BRAM_WIDTH (%d)", BLOCK_SIZE, OUT_BRAM_WIDTH);
+end
+
 
 // State definitions 
 localparam STOPPED = 0;
@@ -71,13 +80,9 @@ genvar gi;
 
 
 // Write index for output BRAM
-reg [WRITE_INDEX_WIDTH-1:0] write_index;
+reg [WRITE_INDEX_WIDTH-1:0] out_idx;
 
-// Initialization index for output BRAM
-reg [WRITE_INDEX_WIDTH-1:0] init_index;
-
-
-
+reg [BLOCK_IDX_WIDTH-1:0] block_idx;
 
 
 // State variables
@@ -85,7 +90,7 @@ reg [1:0] state;
 assign stopped = (state == STOPPED);
 assign running = (state == RUNNING);
 assign initializing = (state == INIT);
-reg block_index_rst;
+reg block_idx_rst;
 
 // Block Index 
 wire [BLOCK_IDX_WIDTH-1:0] i;
@@ -96,11 +101,11 @@ wire initialized;
 wire [STEP_WIDTH-1:0] step;
 wire request_stop;
 block_index_iterator #(
-    .N          (N_BLOCK_PER_ROW),
-    .STEPS      (STEPS)
+    .N      (N_BLOCK_PER_ROW),
+    .STEPS  (STEPS)
 ) block_index_iterator_i (
     .clk            (clk),
-    .rst            (block_index_rst),
+    .rst            (block_idx_rst),
     .i              (i),
     .j              (j),
     .next_i         (next_i),
@@ -111,34 +116,46 @@ block_index_iterator #(
 );
 
 
-// Memory for accumulated vector of the matrix multiplication
+// When should the xy_fix_i_packed and x_hat_i_packed_new be updated?
+wire should_update = initializing || (running && j == N_BLOCK_PER_ROW - 1);
+wire [BLOCK_IDX_WIDTH-1:0] real_block_idx = running ? i : block_idx;
+
+
+// Memory for x_fix and y_fix
 wire [0:BLOCK_SIZE*(X_WIDTH+Y_WIDTH)-1] xy_fix_i_packed;
 wire [0:BLOCK_SIZE*(X_WIDTH+Y_WIDTH)-1] xy_fix_i_packed_new;
-
-wire [BLOCK_IDX_WIDTH-1:0] xy_fix_addr = (
-    initializing ? init_index : 
-    running ? (
-        next_j == N_BLOCK_PER_ROW - 1 ? next_i : 
-        j == N_BLOCK_PER_ROW - 1 ? i : 0
-    ) : 0
-);
-wire xy_fix_we = initializing || (running && j == N_BLOCK_PER_ROW - 1);
-
-
 lutram_gen #(
-    .WIDTH          (BLOCK_SIZE * (X_WIDTH + Y_WIDTH)),
-    .DEPTH          (N_BLOCK_PER_ROW),
-    .ADDR_WIDTH     (BLOCK_IDX_WIDTH)
+    .WIDTH      (BLOCK_SIZE * (X_WIDTH + Y_WIDTH)),
+    .DEPTH      (N_BLOCK_PER_ROW),
+    .ADDR_WIDTH (BLOCK_IDX_WIDTH)
 ) xy_fix_mem (
-    .clk            (clk),
-    .addr           (xy_fix_addr),
-    .din            (xy_fix_i_packed_new),
-    .dout           (xy_fix_i_packed),
-    .we             (xy_fix_we)
+    .clk    (clk),
+    .addr   (real_block_idx),
+    .din    (xy_fix_i_packed_new),
+    .dout   (xy_fix_i_packed),
+    .we     (should_update)
+);
+
+// Memory for x_hat
+wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed; // used for matrix multiplication
+wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_i_packed_new; // packed x_hat_i_new
+wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_i_packed; // packed x_hat_i
+dual_lutram_gen #(
+    .WIDTH      (BLOCK_SIZE * X_HAT_WIDTH),
+    .DEPTH      (N_BLOCK_PER_ROW),
+    .ADDR_WIDTH (BLOCK_IDX_WIDTH)
+) x_hat_mem (
+    .clk    (clk),
+    .addra  (real_block_idx),
+    .dina   (x_hat_i_packed_new),
+    .wea    (should_update),
+    .douta  (x_hat_i_packed),
+    .addrb  (j),
+    .doutb  (x_hat_j_packed)
 );
 
 
-// Local Coefficient Matrix
+// Memory for Coefficient Matrix
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ij;
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ji;
 J_block_bram_loader #(
@@ -153,16 +170,7 @@ J_block_bram_loader #(
 );
 
 
-(* ram_style = "registers" *)
-reg signed [X_HAT_WIDTH-1:0] x_hat [0:N-1];
 
-// x_hat_local arrays
-wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed; // used for matrix multiplication
-generate
-    for (gi = 0; gi < BLOCK_SIZE; gi = gi + 1) begin : gen_x_hat_packed
-        assign x_hat_j_packed[gi*X_HAT_WIDTH +: X_HAT_WIDTH] = x_hat[j * BLOCK_SIZE + gi];
-    end
-endgenerate
 
 // Memory for accumulated vector of the matrix multiplication
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] block_matmul_acc_i_packed;
@@ -179,17 +187,14 @@ lutram_gen #(
     .we     (running)
 );
 
-if (BLOCK_SIZE*MUL_WIDTH != 800) begin
-    $error("Customization of matmul_acc_bram to fit the data width (%d) is required", BLOCK_SIZE*MUL_WIDTH);
-end
 
 
-// Block Matrix multiplication result
+// Block Matrix multiplication
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_i_packed;
 matmul #(
-    .N              (BLOCK_SIZE),
-    .M              (BLOCK_SIZE),
-    .CHUNK          (1)
+    .N      (BLOCK_SIZE),
+    .M      (BLOCK_SIZE),
+    .CHUNK  (1)
 ) matmul_i_ji (
     .J              (J_local_ij),
     .x              (x_hat_j_packed),
@@ -210,12 +215,6 @@ generate
 endgenerate
 
 
-if (OUT_BRAM_DEPTH < $clog2((N-1)/OUT_BRAM_WIDTH+1)) begin
-    $error("OUT_BRAM_DEPTH (%d) is not sufficient for N (%d) bits.", OUT_BRAM_DEPTH, N);
-end
-
-
-
 
 // Combinational logic for dynamics update
 wire x_fix_i_init_sign [0:BLOCK_SIZE-1]; // 0 for positive, 1 for negative
@@ -233,8 +232,6 @@ wire signed [G_HAT_WIDTH-1:0] g_hat_i [0:BLOCK_SIZE-1];
 
 wire right_out_of_bounds [0:BLOCK_SIZE-1];
 wire left_out_of_bounds [0:BLOCK_SIZE-1];
-
-
 
 generate 
     for (gi = 0; gi < BLOCK_SIZE; gi = gi + 1) begin : calculate_dynamics
@@ -314,134 +311,134 @@ generate
         // assign xy_fix_i_packed_new
         assign xy_fix_i_packed_new[gi*(X_WIDTH + Y_WIDTH) +: X_WIDTH] = x_fix_i_new[gi];
         assign xy_fix_i_packed_new[gi*(X_WIDTH + Y_WIDTH) + X_WIDTH +: Y_WIDTH] = y_fix_i_new[gi];
+        assign x_hat_i_packed_new[gi*X_HAT_WIDTH +: X_HAT_WIDTH] = x_hat_i_new[gi];
 
     end
 endgenerate
 
 
 
-integer k;
+// Sequential logic of the state machine
 
-always @(posedge clk) begin
+reg [K_N-1:0] read_begin;
+reg [K_N-1:0] write_begin;
+wire [K_N:0] read_end = read_begin + BLOCK_SIZE;
+wire [K_N:0] write_end = write_begin + OUT_BRAM_WIDTH;
+reg signed [LOCAL_IDX_WIDTH:0] read_offset;
 
-    // Default values
-    block_index_rst <= 1'b0;
+initial begin
     state <= STOPPED;
+    block_idx <= 0;
+    out_idx <= 0;
+
+    read_begin <= 0;
+    write_begin <= 0;
+    read_offset <= 0;
+
     BRAM_addr <= 0;
     BRAM_din <= 0;
     BRAM_en <= 0;
     BRAM_we <= 0;
-    write_index <= 0;
-    init_index <= 0;
 
+    block_idx_rst <= 0;
+end
+
+integer k;
+always @(posedge clk) begin
+
+    block_idx_rst <= 1'b0;
     
     // State machine
     case (state)
         STOPPED: begin
-            if (request_start)
+            if (request_start) begin
                 state <= INIT;
+                block_idx <= 0;
+            end
         end
 
         INIT: begin
-            
-            for (k = 0; k < BLOCK_SIZE; k = k + 1) begin
-                x_hat[xy_fix_addr * BLOCK_SIZE + k] <= x_hat_i_new[k];
-            end
-            if (init_index == N_BLOCK_PER_ROW - 1) begin
+            if (block_idx == N_BLOCK_PER_ROW - 1) begin
                 state <= RUNNING;
             end else begin
-                state <= INIT;
-                init_index <= init_index + 1;
-                block_index_rst <= 1'b1; 
+                block_idx <= block_idx + 1;
+                block_idx_rst <= 1'b1; 
             end
         end
         
         RUNNING: begin
-            state <= RUNNING;
-
-            if (j == N_BLOCK_PER_ROW - 1) begin
-                // write new x_fix[i] and y_fix[i]
-
-                // Update dynamics when j == N-1
-                // $display("Step %d: Updating dynamics for chunk (%2d)", step, real_i);
-                for (k = 0; k < BLOCK_SIZE; k = k + 1) begin
-                    x_hat[xy_fix_addr * BLOCK_SIZE + k] <= x_hat_i_new[k];
-                end
-
-
-                // $write("block_matmul_acc_i_new[%2d] = [", i); 
-                // for (k = 0; k < BLOCK_SIZE; k = k + 1) 
-                //     $write("%3d,", block_matmul_acc_i_new[k]);
-                // $write("]\n");
-
-                // $write("g_fix_i[%2d] = [", i);
-                // for (k = 0; k < BLOCK_SIZE; k = k + 1) 
-                //     $write("%5d,", g_fix_i[k]);
-                // $write("]\n");
-
-                // $write("g_hat_i[%2d] = [", i);
-                // for (k = 0; k < BLOCK_SIZE; k = k + 1) 
-                //     $write("%1d,", g_hat_i[k]);
-                // $write("]\n");
-
-                // $write("y_fix_i_new[%2d] = [", i);
-                // for (k = 0; k < BLOCK_SIZE; k = k + 1) 
-                //     $write("%2d,", y_fix_i_new[k]);
-                // $write("]\n");
-
-                // $write("x_fix_i_new[%2d] = [", i);
-                // for (k = 0; k < BLOCK_SIZE; k = k + 1) 
-                //     $write("%2d,", x_fix_i_new[k]);
-                // $write("]\n");
-
-                // $write("\n");
-                
-            end else begin
-                // Keep the current values for x_fix, y_fix, and x_hat
-            end
-
-            // Display x_hat 
-            if (i == N_BLOCK_PER_ROW - 1 && j == 0) begin
-                 $display("Step = %d", step);
-                 $write("x_hat = [");
-                 for (k = 0; k < N; k = k + 1)
-                     $write("%1d,", x_hat[k]);
-                 $write("]\n");
-                //  $write("x_fix = [");
-                //  for (k = 0; k < N; k = k + 1)
-                //      $write("%1d,", x_fix[k]);
-                //  $write("]\n");
-                //  $write("y_fix = [");
-                //  for (k = 0; k < N; k = k + 1)
-                //      $write("%1d,", y_fix[k]);
-                //  $write("]\n");
-                 $write("\n");
-            end
-
             if (i == N_BLOCK_PER_ROW - 1 && j == N_BLOCK_PER_ROW - 1 && request_stop) begin
                 state <= WRITE;
-            end
+                            
+                read_begin <= 0;
+                write_begin <= 0;
+                read_offset <= 0;
+                block_idx <= 0;
+                out_idx <= 0;
 
+                BRAM_addr <= 0;
+                BRAM_din <= 0;
+                BRAM_en <= 0;
+                BRAM_we <= 0;
+            end
         end
         
         WRITE: begin  
             
-            if (write_index <= N / OUT_BRAM_WIDTH) begin
-                state <= WRITE;
-
-                write_index <= write_index + 1;
-                BRAM_en <= 1;
-                BRAM_we <= 4'b1111; // Write all bytes
-                BRAM_addr <= write_index;
-                for (k = 0; k < OUT_BRAM_WIDTH; k = k + 1) begin
-                    if ((write_index * OUT_BRAM_WIDTH + k) < N)
-                        BRAM_din[k] <= x_hat[write_index * OUT_BRAM_WIDTH + k][X_HAT_WIDTH-1]; // Use the sign bit of x_hat
-                    else 
-                        BRAM_din[k] <= 1'b0;
+            // Fetch the sign of x and pack to BRAM_din
+            for (k = 0; k < OUT_BRAM_WIDTH; k = k + 1) begin
+                if (write_begin + k < read_begin) begin
+                    BRAM_din[k] <= BRAM_din[k]; // Keep the previous value
+                end else if (write_begin + k < read_end) begin
+                    BRAM_din[k] <= x_hat_i_packed[(read_offset + k) * X_HAT_WIDTH];
+                end else begin
+                    BRAM_din[k] <= 0; // Fill the rest with zeros
                 end
             end
-        end
 
+            if (out_idx > WRITE_INDEX_MAX) begin
+                state <= STOPPED; // Stop after writing the last block
+            end
+            
+            // Default values for BRAM
+            BRAM_addr <= out_idx;
+            BRAM_we <= 4'b1111;
+            BRAM_en <= 1;
+
+            if (write_end > read_end) begin
+                /*
+                 *  read:  |<------------------->|
+                 *  write:              |<--------->|
+                 */
+                // Next read block
+                block_idx <= block_idx + 1;
+                read_begin <= read_begin + BLOCK_SIZE;
+                read_offset <= read_offset - BLOCK_SIZE;
+
+                // Don't write to BRAM at this moment, since BRAM_din is not completely filled
+                BRAM_we <= 0;
+                
+            end else if (write_begin < read_begin) begin
+                /*
+                 *  read:      |<------------------->|
+                 *  write: |<--------->|
+                 */
+                // Next write index
+                out_idx <= out_idx + 1;
+                write_begin <= write_begin + OUT_BRAM_WIDTH;
+                read_offset <= read_offset + OUT_BRAM_WIDTH;
+
+            end else begin
+                /*
+                 *  read:  |<------------------->|
+                 *  write:     |<--------->|
+                 */
+                // Next write index
+                out_idx <= out_idx + 1;
+                write_begin <= write_begin + OUT_BRAM_WIDTH;
+                read_offset <= read_offset + OUT_BRAM_WIDTH;
+            end
+        end
     endcase
 
 end

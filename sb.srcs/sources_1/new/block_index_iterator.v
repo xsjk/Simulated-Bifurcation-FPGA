@@ -22,6 +22,8 @@ wire [WIDTH:0] s = j + i;
 
 assign request_stop = (j == N - 1 && i == N - 1) && (step == STEPS - 1);
 
+reg is_first;
+
 // Update j, i, initialized, step on clock edge
 always @(posedge clk) begin
     i <= next_i;
@@ -30,60 +32,40 @@ always @(posedge clk) begin
     if (rst) begin
         initialized <= 1'b0;
         step <= 0;
+        is_first <= 1'b1;
     end else begin
         if (i == N - 1 && j == N - 1) begin
             initialized <= 1'b1;
             step <= step + 1;
         end
+        if (s + 2 >= N)
+            is_first <= 1'b0;
     end
 end
 
 // Update next_j, next_i with combinational logic
-reg is_first;
 always @(*) begin
     if (rst) begin
         next_i = 0;
         next_j = 0;
-        is_first = 1'b1;
-    end else begin
-        if (is_first) begin
-            if (i > j) begin
-                next_i = j;
-                next_j = i;
-            end else if (i + 1 < j) begin
-                next_i = j - 1;
-                next_j = i + 1;
-            end else if (s == N - 1) begin
-                is_first = 1'b0;
-                next_i = N - 1;
-                next_j = 1;
-            end else begin
-                next_i = s + 1;
-                next_j = 0;
-            end
-        end else begin
-            if (i > j) begin
-                next_i = j;
-                next_j = i;
-            end else if (i + 1 < j) begin
-                next_i = j - 1;
-                next_j = i + 1;
-            end else begin
-                if (s == N) begin
-                    next_i = 0;
-                    next_j = 0;
-                end else if (s > N) begin
-                    next_i = s - N;
-                    next_j = 0;
-                end else if (s + 2 >= N) begin
-                    next_i = N - 1;
-                    next_j = s + 2 - N;
-                end else begin
-                    next_i = N - 1;
-                    next_j = s + 2;
-                end
-            end
-        end
+    end else if (i > j) begin
+        next_i = j;
+        next_j = i;
+    end else if (i + 1 < j) begin
+        next_i = j - 1;
+        next_j = i + 1;
+    end else if (is_first) begin
+        next_i = s + 1;
+        next_j = 0;
+    end else if (s >= N) begin
+        next_i = s - N;
+        next_j = 0;
+    end else if (s + 2 >= N) begin
+        next_i = N - 1;
+        next_j = s + 2 - N;
+    end else begin // s < N-2
+        next_i = N - 1;
+        next_j = s + 2;
     end
 end
 
