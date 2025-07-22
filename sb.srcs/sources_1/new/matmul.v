@@ -4,14 +4,16 @@ module matmul #(
     parameter N = 80,
     parameter M = 80,
     parameter CHUNK = 1,
-    parameter WIDTH = $clog2(M+1)+1   // WIDTH of signed out
+    parameter WIDTH = $clog2(M+1)+1,   // WIDTH of signed out
+    parameter ENABLE_OUTREG = 0
 )
 // Calculate (N, M) * (M,) -> (N,) every clock cycle
 (
+    input wire clk,
     input wire [0:M*2-1] x,   
     input wire [0:N*M*1-1] J,
     input wire is_diagonal, // if J is diagonal, then J[i*M+j] = 0 for i != j
-    output wire [0:N*WIDTH-1] out 
+    output reg [0:N*WIDTH-1] out 
 );
 
 integer i;
@@ -34,9 +36,8 @@ always @(*) begin
             s_local[j/CHUNK_SIZE] = s_local[j/CHUNK_SIZE] + $signed({(J[i*M+j]^x[j*2])&x[j*2+1], x[j*2+1]});
 
         // Remove diagonal element if needed
-        if (is_diagonal) begin
+        if (is_diagonal)
             s_local[i/CHUNK_SIZE] = s_local[i/CHUNK_SIZE] - $signed({(J[i*M+i]^x[i*2])&x[i*2+1], x[i*2+1]});
-        end
         
         for (k=0; k<CHUNK; k=k+1)
             s[i] = s[i] + s_local[k];
@@ -44,11 +45,9 @@ always @(*) begin
 end
 
 // Assign output directly from combinational logic
-genvar gi;
-generate
-    for (gi=0; gi<N; gi=gi+1) begin : gen_out
-        assign out[gi*WIDTH +: WIDTH] = s[gi];
-    end
-endgenerate
+if (ENABLE_OUTREG) 
+    always @(posedge clk) for (i=0; i<N; i=i+1) out[i*WIDTH +: WIDTH] <= s[i];
+else
+    always @(*) for (i=0; i<N; i=i+1) out[i*WIDTH +: WIDTH] = s[i];
 
 endmodule

@@ -2,71 +2,56 @@
 
 module block_index_iterator #(
     parameter N = 80,
-    parameter STEPS = 5000, // count from 0
     parameter WIDTH = $clog2(N),
+    parameter STEPS = 5000,
     parameter STEP_WIDTH = $clog2(STEPS)
 ) (
     input wire clk,
     input wire rst,
     output reg [WIDTH-1:0] i,
     output reg [WIDTH-1:0] j,
-    output reg [WIDTH-1:0] next_i,
-    output reg [WIDTH-1:0] next_j,
-    output reg initialized,
     output reg [STEP_WIDTH-1:0] step,
     output wire request_stop
 );
 
 // Internal signals
-wire [WIDTH:0] s = j + i; 
-
-assign request_stop = (j == N - 1 && i == N - 1) && (step == STEPS - 1);
-
+wire [WIDTH:0] s = j + i;
 reg is_first;
+assign request_stop = (i == N - 1 && j == N - 1 && step == STEPS - 1);
 
-// Update j, i, initialized, step on clock edge
+// Update i, j, step on clock edge
 always @(posedge clk) begin
-    i <= next_i;
-    j <= next_j;
-
     if (rst) begin
-        initialized <= 1'b0;
+        i <= 0;
+        j <= 0;
         step <= 0;
         is_first <= 1'b1;
     end else begin
-        if (i == N - 1 && j == N - 1) begin
-            initialized <= 1'b1;
-            step <= step + 1;
+        if (i > j) begin
+            i <= j;
+            j <= i;
+        end else if (i + 1 < j) begin
+            i <= j - 1;
+            j <= i + 1;
+        end else if (is_first) begin
+            i <= s + 1;
+            j <= 0;
+        end else if (s >= N) begin
+            i <= s - N;
+            j <= 0;
+        end else if (s + 2 >= N) begin
+            i <= N - 1;
+            j <= s + 2 - N;
+        end else begin // s < N-2
+            i <= N - 1;
+            j <= s + 2;
         end
+        if (i == N - 1 && j == N - 1)
+            step <= step + 1;
         if (s + 2 >= N)
             is_first <= 1'b0;
     end
 end
 
-// Update next_j, next_i with combinational logic
-always @(*) begin
-    if (rst) begin
-        next_i = 0;
-        next_j = 0;
-    end else if (i > j) begin
-        next_i = j;
-        next_j = i;
-    end else if (i + 1 < j) begin
-        next_i = j - 1;
-        next_j = i + 1;
-    end else if (is_first) begin
-        next_i = s + 1;
-        next_j = 0;
-    end else if (s >= N) begin
-        next_i = s - N;
-        next_j = 0;
-    end else if (s + 2 >= N) begin
-        next_i = N - 1;
-        next_j = s + 2 - N;
-    end else begin // s < N-2
-        next_i = N - 1;
-        next_j = s + 2;
-    end
-end
 
 endmodule

@@ -8,7 +8,7 @@ parameter WIDTH = 11;
 
 reg [0:M*2-1] x;
 reg [0:N*M*1-1] J;
-wire [0:N*WIDTH-1] OUT;
+wire [0:N*WIDTH-1] out;
 reg clk;
 
 matmul #(
@@ -16,9 +16,10 @@ matmul #(
     .M      (M),
     .WIDTH  (WIDTH)
 ) uut (
+    .clk    (clk),
     .x      (x),
     .J      (J),
-    .OUT    (OUT)
+    .out    (out)
 );
 initial begin
     clk = 0;
@@ -27,15 +28,7 @@ end
 
 integer i;
 
-
-reg signed [31:0] test_wire = -1;
-
-
 initial begin
-    test_wire = $signed(test_wire) << $signed(4);
-    #1
-    $display("%b", test_wire);
-    $finish;
     #5;
         
     x = 6'b011100;  // [1,-1,0]
@@ -71,9 +64,9 @@ initial begin
     #6;
 
     for (t = 0; t < 10; t = t + 1) begin
-        $write("t=%d, OUT=[", t);
+        $write("t=%d, out=[", t);
         for (i = 0; i < N; i = i+1) begin
-            $write("%d,", $signed(OUT[i*WIDTH +: WIDTH]));
+            $write("%d,", $signed(out[i*WIDTH +: WIDTH]));
         end
         $write("]\n");
 

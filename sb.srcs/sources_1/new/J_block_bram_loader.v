@@ -11,7 +11,9 @@ module J_block_bram_loader #(
     // Parameters of the Block RAM Generator IP core, should not be changed from outside
     parameter BRAM_DATA_WIDTH = 90 * 36,
     parameter BRAM_ADDR_DEPTH = 1024,
-    parameter BRAM_ADDR_WIDTH = $clog2(BRAM_ADDR_DEPTH)
+    parameter BRAM_ADDR_WIDTH = $clog2(BRAM_ADDR_DEPTH),
+
+    parameter ENABLE_OUTREG = 0
 )
 (
     input wire clk,
@@ -86,7 +88,18 @@ transpose #(
     .out    (upper_block)
 );
 
-assign out_ij = is_lower_block ? lower_block : upper_block;
-assign out_ji = is_lower_block ? upper_block : lower_block;
+if (ENABLE_OUTREG) begin
+    reg [0:BLOCK_DATA_WIDTH-1] out_ij_reg;
+    reg [0:BLOCK_DATA_WIDTH-1] out_ji_reg;
+    always @(posedge clk) begin
+        out_ij_reg <= is_lower_block ? lower_block : upper_block;
+        out_ji_reg <= is_lower_block ? upper_block : lower_block;
+    end
+    assign out_ij = out_ij_reg;
+    assign out_ji = out_ji_reg;
+end else begin
+    assign out_ij = is_lower_block ? lower_block : upper_block;
+    assign out_ji = is_lower_block ? upper_block : lower_block;
+end
 
 endmodule

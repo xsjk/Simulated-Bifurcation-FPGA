@@ -61,14 +61,6 @@ if (K_X != 1) begin
     $error("K_X (%d) must be equal to 1 since x is always in the range [-1, 1]", K_X);
 end
 
-if (OUT_BRAM_DEPTH < $clog2((N-1)/OUT_BRAM_WIDTH+1)) begin
-    $error("OUT_BRAM_DEPTH (%d) is not sufficient for N (%d) bits.", OUT_BRAM_DEPTH, N);
-end
-
-if (BLOCK_SIZE < OUT_BRAM_WIDTH) begin
-    $error("BLOCK_SIZE (%d) must be greater than or equal to OUT_BRAM_WIDTH (%d)", BLOCK_SIZE, OUT_BRAM_WIDTH);
-end
-
 
 // State definitions 
 localparam STOPPED = 0;
@@ -85,6 +77,10 @@ reg [WRITE_INDEX_WIDTH-1:0] out_idx;
 reg [BLOCK_IDX_WIDTH-1:0] block_idx;
 
 
+if (BLOCK_SIZE < OUT_BRAM_WIDTH) begin
+    $error("BLOCK_SIZE (%d) must be greater than or equal to OUT_BRAM_WIDTH (%d)", BLOCK_SIZE, OUT_BRAM_WIDTH);
+end
+
 // State variables
 reg [1:0] state;
 assign stopped = (state == STOPPED);
@@ -92,34 +88,107 @@ assign running = (state == RUNNING);
 assign initializing = (state == INIT);
 reg block_idx_rst;
 
-// Block Index 
-wire [BLOCK_IDX_WIDTH-1:0] i;
-wire [BLOCK_IDX_WIDTH-1:0] j;
-wire [BLOCK_IDX_WIDTH-1:0] next_i;
-wire [BLOCK_IDX_WIDTH-1:0] next_j;
-wire initialized;
+// Block Index Iterator
+localparam STAGE = 10;
+wire [BLOCK_IDX_WIDTH-1:0] stage_i [0:STAGE-1];
+wire [BLOCK_IDX_WIDTH-1:0] stage_j [0:STAGE-1];
+wire stage_request_stop [0:STAGE-1];
 wire [STEP_WIDTH-1:0] step;
-wire request_stop;
 block_index_iterator #(
     .N      (N_BLOCK_PER_ROW),
     .STEPS  (STEPS)
 ) block_index_iterator_i (
     .clk            (clk),
     .rst            (block_idx_rst),
-    .i              (i),
-    .j              (j),
-    .next_i         (next_i),
-    .next_j         (next_j),
-    .initialized    (initialized),
+    .i              (stage_i[0]),
+    .j              (stage_j[0]),
     .step           (step),
-    .request_stop   (request_stop)
+    .request_stop   (stage_request_stop[0])
 );
+generate
+    for (gi = 1; gi < STAGE; gi = gi + 1) begin : gen_stage_reg
+        reg [BLOCK_IDX_WIDTH-1:0] i;
+        reg [BLOCK_IDX_WIDTH-1:0] j;
+        reg request_stop;
+        always @(posedge clk) begin
+            i <= stage_i[gi-1];
+            j <= stage_j[gi-1];
+            request_stop <= stage_request_stop[gi-1];
+        end
+        assign stage_i[gi] = i;
+        assign stage_j[gi] = j;
+        assign stage_request_stop[gi] = request_stop;
+    end
+endgenerate
+reg [$clog2(STAGE)-1:0] stage_idx;
+always @(posedge clk) begin
+    if (block_idx_rst)
+        stage_idx <= 0;
+    else if (stage_idx + 2 < STAGE)
+        stage_idx <= stage_idx + 1;
+end
 
+
+// Calculate the stage of x_hat_j
+localparam X_HAT_J_IS_BRAM = 0;
+localparam X_HAT_J_ENABLE_OUTREG = 1;
+
+localparam STAGE_X_HAT_J_LOAD = 1;
+localparam STAGE_X_HAT_J_DATA_ARRIVE = STAGE_X_HAT_J_LOAD + X_HAT_J_IS_BRAM + X_HAT_J_ENABLE_OUTREG;
+
+
+// Calculate the stage of J
+localparam J_IS_BRAM = 1;
+localparam J_ENABLE_OUTREG = 1;
+localparam BLOCK_MATMUL_OUTREG = 1;
+
+localparam STAGE_J_DATA_LOAD = 0;
+localparam STAGE_J_DATA_ARRIVE = STAGE_J_DATA_LOAD + J_IS_BRAM + J_ENABLE_OUTREG;
+localparam STAGE_MATMUL_DATA_ARRIVE = STAGE_J_DATA_ARRIVE + BLOCK_MATMUL_OUTREG;
+
+if (STAGE_X_HAT_J_DATA_ARRIVE != STAGE_J_DATA_ARRIVE) begin
+    $error("X_hat_j data arrival stage does not match J data arrival stage, matrix multiplication cannot be performed correctly.");
+end
+
+
+// Calculate the stage of block_matmul_acc
+localparam BLOCK_MATMUL_ACC_IS_BRAM = 0;
+localparam BLOCK_MATMUL_ACC_OUTREG = 1;
+localparam BLOCK_MATMUL_ACCREG = 1;
+
+localparam STAGE_BLOCK_MATMUL_ACC_LOAD = 2;
+localparam STAGE_BLOCK_MATMUL_ACC_ARRIVE = STAGE_BLOCK_MATMUL_ACC_LOAD + BLOCK_MATMUL_ACC_IS_BRAM + BLOCK_MATMUL_ACC_OUTREG;
+
+if (STAGE_BLOCK_MATMUL_ACC_ARRIVE != STAGE_MATMUL_DATA_ARRIVE) begin
+    $error("Matrix multiplication result arrival stage does not match the old accumulation data arrival stage, accumulation cannot be performed correctly.");
+end
+
+localparam STAGE_BLOCK_MATMUL_ACC_NEW_ARRIVE = STAGE_BLOCK_MATMUL_ACC_ARRIVE + BLOCK_MATMUL_ACCREG;
+
+
+// Calculate the stage of dynamics update
+localparam STAGE_DYNAMICS_LOAD = 4;
+localparam STAGE_DYNAMICS_ARRIVE = STAGE_DYNAMICS_LOAD;
+
+if (STAGE_DYNAMICS_ARRIVE != STAGE_BLOCK_MATMUL_ACC_NEW_ARRIVE) begin
+    $error("Old Dynamics arrival stage does not match the block matrix multiplication accumulation done stage, cannot perform dynamics update correctly.");
+end
+
+localparam STAGE_DYNAMICS_NEW_ARRIVE = STAGE_DYNAMICS_ARRIVE;
+
+
+
+if (STAGE_DYNAMICS_LOAD != STAGE_DYNAMICS_ARRIVE) begin
+    $error("Currently there is no register between the dynamics update calculation and the update of x_fix, y_fix, x_hat.");
+end
 
 // When should the xy_fix_i_packed and x_hat_i_packed_new be updated?
-wire should_update = initializing || (running && j == N_BLOCK_PER_ROW - 1);
-wire [BLOCK_IDX_WIDTH-1:0] real_block_idx = running ? i : block_idx;
-
+wire should_update = initializing || (running && stage_j[STAGE_DYNAMICS_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1);
+wire [BLOCK_IDX_WIDTH-1:0] real_block_idx = running ? (
+    stage_j[STAGE_DYNAMICS_LOAD] == N_BLOCK_PER_ROW - 1 ? stage_i[STAGE_DYNAMICS_LOAD] :
+    stage_j[STAGE_DYNAMICS_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1 ? stage_i[STAGE_DYNAMICS_NEW_ARRIVE] - 1 :
+    0
+) : block_idx;
 
 // Memory for x_fix and y_fix
 wire [0:BLOCK_SIZE*(X_WIDTH+Y_WIDTH)-1] xy_fix_i_packed;
@@ -141,30 +210,32 @@ wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed; // used for matrix multiplicat
 wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_i_packed_new; // packed x_hat_i_new
 wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_i_packed; // packed x_hat_i
 dual_lutram_gen #(
-    .WIDTH      (BLOCK_SIZE * X_HAT_WIDTH),
-    .DEPTH      (N_BLOCK_PER_ROW),
-    .ADDR_WIDTH (BLOCK_IDX_WIDTH)
+    .WIDTH          (BLOCK_SIZE * X_HAT_WIDTH),
+    .DEPTH          (N_BLOCK_PER_ROW),
+    .ADDR_WIDTH     (BLOCK_IDX_WIDTH),
+    .ENABLE_OUTREGB (X_HAT_J_ENABLE_OUTREG)
 ) x_hat_mem (
     .clk    (clk),
     .addra  (real_block_idx),
     .dina   (x_hat_i_packed_new),
     .wea    (should_update),
     .douta  (x_hat_i_packed),
-    .addrb  (j),
+    .addrb  (stage_j[STAGE_X_HAT_J_LOAD]),
     .doutb  (x_hat_j_packed)
 );
 
 
-// Memory for Coefficient Matrix
+// Local Coefficient Matrix
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ij;
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ji;
 J_block_bram_loader #(
     .N              (N),
-    .BLOCK_SIZE     (BLOCK_SIZE)
+    .BLOCK_SIZE     (BLOCK_SIZE),
+    .ENABLE_OUTREG  (J_ENABLE_OUTREG)
 ) J_block_bram_loader_i (
     .clk    (clk),
-    .i      (next_i),
-    .j      (next_j),
+    .i      (stage_i[STAGE_J_DATA_LOAD]),
+    .j      (stage_j[STAGE_J_DATA_LOAD]),
     .out_ij (J_local_ij),
     .out_ji (J_local_ji)
 );
@@ -175,41 +246,65 @@ J_block_bram_loader #(
 // Memory for accumulated vector of the matrix multiplication
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] block_matmul_acc_i_packed;
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] block_matmul_acc_i_packed_new; // packed block_matmul_acc_i_new
-lutram_gen #(
-    .WIDTH      (BLOCK_SIZE * MUL_WIDTH),
-    .DEPTH      (N_BLOCK_PER_ROW),
-    .ADDR_WIDTH (BLOCK_IDX_WIDTH)
-) block_matmul_acc_mem (
-    .clk    (clk),
-    .addr   (i),
-    .din    (block_matmul_acc_i_packed_new),
-    .dout   (block_matmul_acc_i_packed),
-    .we     (running)
-);
+if (STAGE_BLOCK_MATMUL_ACC_NEW_ARRIVE == STAGE_BLOCK_MATMUL_ACC_ARRIVE && BLOCK_MATMUL_ACC_OUTREG == 0) begin
+    $info("Using single port LUTRAM for block matrix multiplication accumulation storage, since there is no delay between the load stage and write stage, the block_matmul_acc_i_packed_new will be written directly to the memory.");
+    lutram_gen #(
+        .WIDTH          (BLOCK_SIZE * MUL_WIDTH),
+        .DEPTH          (N_BLOCK_PER_ROW),
+        .ADDR_WIDTH     (BLOCK_IDX_WIDTH),
+        .ENABLE_OUTREG  (BLOCK_MATMUL_ACC_OUTREG)
+    ) block_matmul_acc_mem (
+        .clk    (clk),
+        .addr   (stage_i[STAGE_BLOCK_MATMUL_ACC_LOAD]),
+        .din    (block_matmul_acc_i_packed_new),
+        .dout   (block_matmul_acc_i_packed),
+        .we     (running)
+    );
+end else begin
+    $info("Using dual port LUTRAM for block matrix multiplication accumulation storage, since there is a delay between the load stage and write stage, the block_matmul_acc_i_packed_new will be written to the memory after the load stage.");
+    dual_lutram_gen #(
+        .WIDTH          (BLOCK_SIZE * MUL_WIDTH),
+        .DEPTH          (N_BLOCK_PER_ROW),
+        .ADDR_WIDTH     (BLOCK_IDX_WIDTH),
+        .ENABLE_OUTREGB (BLOCK_MATMUL_ACC_OUTREG)
+    ) block_matmul_acc_mem (
+        .clk    (clk),
+        .addra  (stage_i[STAGE_BLOCK_MATMUL_ACC_NEW_ARRIVE]),
+        .dina   (block_matmul_acc_i_packed_new),
+        .douta  (), // Not used
+        .wea    (running),
+        .addrb  (stage_i[STAGE_BLOCK_MATMUL_ACC_LOAD]),
+        .doutb  (block_matmul_acc_i_packed)
+    );
+end
 
 
-
-// Block Matrix multiplication
+// Block Matrix multiplication result
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_i_packed;
 matmul #(
-    .N      (BLOCK_SIZE),
-    .M      (BLOCK_SIZE),
-    .CHUNK  (1)
-) matmul_i_ji (
+    .N              (BLOCK_SIZE),
+    .M              (BLOCK_SIZE),
+    .CHUNK          (1),
+    .ENABLE_OUTREG  (BLOCK_MATMUL_OUTREG)
+) matmul_i (
+    .clk            (clk),
     .J              (J_local_ij),
     .x              (x_hat_j_packed),
-    .is_diagonal    (i == j),
+    .is_diagonal    (stage_i[STAGE_J_DATA_ARRIVE] == stage_j[STAGE_J_DATA_ARRIVE]), 
     .out            (block_matmul_out_i_packed)
 );
 
 wire signed [MUL_WIDTH-1:0] block_matmul_acc_i [0:BLOCK_SIZE-1]; // unpacked block_matmul_acc_i_packed
 wire signed [BLOCK_MUL_WIDTH-1:0] block_matmul_out_i [0:BLOCK_SIZE-1]; // unpacked block_matmul_out_i_packed
-wire signed [MUL_WIDTH-1:0] block_matmul_acc_i_new [0:BLOCK_SIZE-1]; // block_matmul_acc_i + block_matmul_out_j
+reg signed [MUL_WIDTH-1:0] block_matmul_acc_i_new [0:BLOCK_SIZE-1]; // block_matmul_acc_i + block_matmul_out_j
 generate
     for (gi = 0; gi < BLOCK_SIZE; gi = gi + 1) begin : gen_next_tmp_j
         assign block_matmul_out_i[gi] = block_matmul_out_i_packed[gi*BLOCK_MUL_WIDTH +: BLOCK_MUL_WIDTH];
         assign block_matmul_acc_i[gi] = block_matmul_acc_i_packed[gi*MUL_WIDTH +: MUL_WIDTH];
-        assign block_matmul_acc_i_new[gi] = j == 0 ? block_matmul_out_i[gi] : block_matmul_acc_i[gi] + block_matmul_out_i[gi];
+        if (BLOCK_MATMUL_ACCREG) 
+            always @(posedge clk) block_matmul_acc_i_new[gi] <= stage_j[STAGE_BLOCK_MATMUL_ACC_ARRIVE] == 0 ? block_matmul_out_i[gi] : block_matmul_acc_i[gi] + block_matmul_out_i[gi];
+        else
+            always @(*) block_matmul_acc_i_new[gi] = stage_j[STAGE_BLOCK_MATMUL_ACC_ARRIVE] == 0 ? block_matmul_out_i[gi] : block_matmul_acc_i[gi] + block_matmul_out_i[gi];
         assign block_matmul_acc_i_packed_new[gi*MUL_WIDTH +: MUL_WIDTH] = block_matmul_acc_i_new[gi];
     end
 endgenerate
@@ -232,6 +327,8 @@ wire signed [G_HAT_WIDTH-1:0] g_hat_i [0:BLOCK_SIZE-1];
 
 wire right_out_of_bounds [0:BLOCK_SIZE-1];
 wire left_out_of_bounds [0:BLOCK_SIZE-1];
+
+
 
 generate 
     for (gi = 0; gi < BLOCK_SIZE; gi = gi + 1) begin : calculate_dynamics
@@ -318,7 +415,7 @@ endgenerate
 
 
 
-// Sequential logic of the state machine
+integer k;
 
 reg [K_N-1:0] read_begin;
 reg [K_N-1:0] write_begin;
@@ -343,7 +440,6 @@ initial begin
     block_idx_rst <= 0;
 end
 
-integer k;
 always @(posedge clk) begin
 
     block_idx_rst <= 1'b0;
@@ -367,7 +463,8 @@ always @(posedge clk) begin
         end
         
         RUNNING: begin
-            if (i == N_BLOCK_PER_ROW - 1 && j == N_BLOCK_PER_ROW - 1 && request_stop) begin
+
+            if (stage_request_stop[STAGE_DYNAMICS_NEW_ARRIVE]) begin
                 state <= WRITE;
                             
                 read_begin <= 0;
@@ -415,7 +512,7 @@ always @(posedge clk) begin
                 read_begin <= read_begin + BLOCK_SIZE;
                 read_offset <= read_offset - BLOCK_SIZE;
 
-                // Don't write to BRAM at this moment, since BRAM_din is not completely filled
+                // Don't write to BRAM
                 BRAM_we <= 0;
                 
             end else if (write_begin < read_begin) begin
