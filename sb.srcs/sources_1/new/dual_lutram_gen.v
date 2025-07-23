@@ -36,14 +36,10 @@ generate
             .dpo    (doutb_i),
             .we     (wea)
         );
-        if (ENABLE_OUTREGA)
-            always @(posedge clk) douta[i] <= douta_i;
-        else
-            always @(*) douta[i] = douta_i;
-        if (ENABLE_OUTREGB)
-            always @(posedge clk) doutb[i] <= doutb_i;
-        else
-            always @(*) doutb[i] = doutb_i;
+        if (ENABLE_OUTREGA) always @(posedge clk) douta[i] <= douta_i;
+        else                always @(*) douta[i] = douta_i;
+        if (ENABLE_OUTREGB) always @(posedge clk) doutb[i] <= doutb_i;
+        else                always @(*) doutb[i] = doutb_i;
     end
 endgenerate
 

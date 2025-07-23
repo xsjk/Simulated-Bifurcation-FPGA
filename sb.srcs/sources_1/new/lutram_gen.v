@@ -30,10 +30,8 @@ generate
             .spo    (dout_i),
             .we     (we)
         );
-        if (ENABLE_OUTREG) 
-            always @(posedge clk) dout[i] <= dout_i;
-        else
-            always @(*) dout[i] = dout_i;
+        if (ENABLE_OUTREG)  always @(posedge clk) dout[i] <= dout_i;
+        else                always @(*) dout[i] = dout_i;
     end
 endgenerate
 
