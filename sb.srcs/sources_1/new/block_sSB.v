@@ -17,7 +17,7 @@ module block_sSB  #(
     parameter K_G = 3,                          // |g| < 2^(K_G)
     parameter K_ALPHA = 2,                      // |sum(J_ij * x_i)| < 2^(-K_ALPHA) * N
 
-    parameter FLAT_IDX_MAX = N*(N-1)/2+N-1,     // Maximum flattened index value
+    parameter FLAT_IDX_MAX = N_BLOCK_PER_ROW*(N_BLOCK_PER_ROW-1)/2+N_BLOCK_PER_ROW-1,  // Maximum flattened index value
 
     parameter FLAT_IDX_WIDTH = $clog2(FLAT_IDX_MAX+1),         // Width for flattened index
     parameter BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW),    // Width for block indices
@@ -34,6 +34,8 @@ module block_sSB  #(
     parameter G_HAT_WIDTH = 1 + K_G,                        // Width for g_hat
 
     parameter X_NEXT_WIDTH = 1 + ((X_HAT_WIDTH > Y_HAT_WIDTH) ? X_HAT_WIDTH : Y_HAT_WIDTH), // Width for x + y_hat
+
+    parameter BLOCK_MATMUL_N_CHUNK = 10, // Number of chunks for block matrix multiplication
 
     parameter OUT_BRAM_WIDTH = 32,  // Width of output BRAM
     parameter OUT_BRAM_DEPTH = 10,   // Depth of output BRAM
@@ -150,21 +152,21 @@ end
 
 
 
-/*   0         1        2         3             4             5            6            7             8
+/*   0         1        2         3             4          5             6            7            8            9              10
  *
  *             j ---- x_hat -
  *                           \
- *  i,j ------ J  ----- J ----- mm_out -         i --------              y_fix --       i ---------
- *                                      \                /                        \              /
- *                      i ----- mm_acc ---- mm_acc_new ---- g_fix ------ g_hat ----- y_fix_new --
- *                                      /               /                        /
- *                                 j ---    --- lhs ----                - oob ---
- *                                         /                           /
- *                      i ------ x_fix ------- x_fix ---              -- r_oob ---                     i ---------
- *                                                      \            / - l_oob -- \                             /
- *                      i ------ y_fix ------- y_hat ------ x_next ----- x_next ---- x_fix_new ---- x_hat_new --
- *                                         \                           x_init_sign /              \
- *                                          -- y_fix ------ y_fix ------ y_fix           i ---------
+ *  i,j ------ J  ----- J ----- mm_dot ---- mm_local -- mm_out -         i --------              y_fix --       i ---------
+ *                                                              \                /                        \              /
+ *                                              i ----- mm_acc ---- mm_acc_new ---- g_fix ------ g_hat ----- y_fix_new --
+ *                                                              /               /                        /
+ *                                                         j ---    --- lhs ----                - oob ---
+ *                                                                 /                           /
+ *                                              i ------ x_fix ------- x_fix ---              -- r_oob ---                     i ---------
+ *                                                                              \            / - l_oob -- \                             /
+ *                                              i ------ y_fix ------- y_hat ------ x_next ----- x_next ---- x_fix_new ---- x_hat_new --
+ *                                                                 \                           x_init_sign /              \
+ *                                                                  -- y_fix ------ y_fix ------ y_fix           i ---------
  */
 
 
@@ -179,11 +181,13 @@ localparam STAGE_X_HAT_ARRIVE = STAGE_X_HAT_LOAD + X_HAT_IS_BRAM + X_HAT_OUTREG;
 // Calculate the stage of J
 localparam J_IS_BRAM = 1;
 localparam J_OUTREG = 1;
+localparam BLOCK_MATMUL_DOTREG = 1;
+localparam BLOCK_MATMUL_LOCALREG = 1;
 localparam BLOCK_MATMUL_OUTREG = 1;
 
 localparam STAGE_J_LOAD = 0;
 localparam STAGE_J_ARRIVE = STAGE_J_LOAD + J_IS_BRAM + J_OUTREG;
-localparam STAGE_MATMUL_OUT_ARRIVE = STAGE_J_ARRIVE + BLOCK_MATMUL_OUTREG;
+localparam STAGE_MATMUL_OUT_ARRIVE = STAGE_J_ARRIVE + BLOCK_MATMUL_DOTREG + BLOCK_MATMUL_LOCALREG + BLOCK_MATMUL_OUTREG;
 
 if (STAGE_X_HAT_ARRIVE != STAGE_J_ARRIVE)
     $error("`x_hat_j` data arrival stage (%d) does not match `J_local_ij` arrival stage (%d), cannot calculate `block_matmul_out_i` correctly.", STAGE_X_HAT_ARRIVE, STAGE_J_ARRIVE);
@@ -194,7 +198,7 @@ localparam BLOCK_MATMUL_ACC_IS_BRAM = 0;
 localparam BLOCK_MATMUL_ACC_OUTREG = 1;
 localparam BLOCK_MATMUL_ACCREG = 1;
 
-localparam STAGE_BLOCK_MATMUL_ACC_LOAD = 2;
+localparam STAGE_BLOCK_MATMUL_ACC_LOAD = 4;
 localparam STAGE_BLOCK_MATMUL_ACC_ARRIVE = STAGE_BLOCK_MATMUL_ACC_LOAD + BLOCK_MATMUL_ACC_IS_BRAM + BLOCK_MATMUL_ACC_OUTREG;
 
 if (STAGE_BLOCK_MATMUL_ACC_ARRIVE != STAGE_MATMUL_OUT_ARRIVE)
@@ -207,13 +211,13 @@ localparam STAGE_BLOCK_MATMUL_ACC_NEW_ARRIVE = STAGE_BLOCK_MATMUL_ACC_ARRIVE + B
 localparam X_FIX_IS_BRAM = 0;
 localparam X_FIX_OUTREG = 1;
 
-localparam STAGE_X_FIX_LOAD = 2;
+localparam STAGE_X_FIX_LOAD = 4;
 localparam STAGE_X_FIX_ARRIVE = STAGE_X_FIX_LOAD + X_FIX_IS_BRAM + X_FIX_OUTREG;
 
 localparam Y_FIX_IS_BRAM = 0;
 localparam Y_FIX_OUTREG = 1;
 
-localparam STAGE_Y_FIX_LOAD = 2;
+localparam STAGE_Y_FIX_LOAD = 4;
 localparam STAGE_Y_FIX_ARRIVE = STAGE_Y_FIX_LOAD + Y_FIX_IS_BRAM + Y_FIX_OUTREG;
 
 
@@ -382,10 +386,12 @@ end
 // Block Matrix multiplication result
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_i_packed;
 matmul #(
-    .N              (BLOCK_SIZE),
-    .M              (BLOCK_SIZE),
-    .CHUNK          (1),
-    .ENABLE_OUTREG  (BLOCK_MATMUL_OUTREG)
+    .N                  (BLOCK_SIZE),
+    .M                  (BLOCK_SIZE),
+    .CHUNK              (BLOCK_MATMUL_N_CHUNK),
+    .ENABLE_DOTREG      (BLOCK_MATMUL_DOTREG),
+    .ENABLE_LOCALREG    (BLOCK_MATMUL_LOCALREG),
+    .ENABLE_OUTREG      (BLOCK_MATMUL_OUTREG)
 ) matmul_i (
     .clk            (clk),
     .J              (J_local_ij),
