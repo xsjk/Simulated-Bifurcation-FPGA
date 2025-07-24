@@ -7,6 +7,7 @@ parameter BLOCK_SIZE = 80; // 80x80 blocks
 parameter BLOCK_DATA_WIDTH = BLOCK_SIZE*BLOCK_SIZE;
 parameter N_BLOCK_PER_ROW = N / BLOCK_SIZE; // 3 blocks per row for a 12x12 matrix
 parameter BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW);
+parameter FLAT_IDX_WIDTH = $clog2(N + N*(N-1)/2);
 parameter CLK_PERIOD = 10;
 
 parameter STEPS = 2;
@@ -24,11 +25,19 @@ end
 
 
 // Block Index 
-wire [BLOCK_IDX_WIDTH-1:0] i;
-wire [BLOCK_IDX_WIDTH-1:0] j;
 wire [BLOCK_IDX_WIDTH-1:0] next_i;
 wire [BLOCK_IDX_WIDTH-1:0] next_j;
-wire initialized;
+wire [FLAT_IDX_WIDTH-1:0] next_flat_idx;
+reg [BLOCK_IDX_WIDTH-1:0] i;
+reg [BLOCK_IDX_WIDTH-1:0] j;
+reg [FLAT_IDX_WIDTH-1:0] flat_idx;
+
+always @(posedge clk) begin
+    i <= next_i;
+    j <= next_j;
+    flat_idx <= next_flat_idx;
+end
+
 wire [STEP_WIDTH-1:0] step;
 wire request_stop;
 wire is_diagonal = (i == j);
@@ -38,27 +47,24 @@ block_index_iterator #(
 ) block_index_iterator_i (
     .clk            (clk),
     .rst            (rst),
-    .i              (i),
-    .j              (j),
-    .next_i         (next_i),
-    .next_j         (next_j),
-    .initialized    (initialized),
+    .i              (next_i),
+    .j              (next_j),
+    .flat_idx       (next_flat_idx),
     .step           (step),
     .request_stop   (request_stop)
 );
-
 
 J_block_bram_loader #(
     .N              (N),
     .BLOCK_SIZE     (BLOCK_SIZE)
 ) uut (
-    .clk    (clk),
-    .i      (next_i),
-    .j      (next_j),
-    .out_ij (block_data),
-    .out_ji (block_data_T)
+    .clk        (clk),
+    .i          (next_i),
+    .j          (next_j),
+    .flat_idx   (next_flat_idx),
+    .out_ij     (block_data),
+    .out_ji     (block_data_T)
 );
-
 
 
 integer k;

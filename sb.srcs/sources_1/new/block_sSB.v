@@ -17,6 +17,9 @@ module block_sSB  #(
     parameter K_G = 3,                          // |g| < 2^(K_G)
     parameter K_ALPHA = 2,                      // |sum(J_ij * x_i)| < 2^(-K_ALPHA) * N
 
+    parameter FLAT_IDX_MAX = N*(N-1)/2+N-1,     // Maximum flattened index value
+
+    parameter FLAT_IDX_WIDTH = $clog2(FLAT_IDX_MAX+1),         // Width for flattened index
     parameter BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW),    // Width for block indices
     parameter BLOCK_DATA_WIDTH = BLOCK_SIZE * BLOCK_SIZE,   // Width for flattened block data
     parameter LOCAL_IDX_WIDTH = $clog2(BLOCK_SIZE),         // Width for inner block index
@@ -98,14 +101,17 @@ reg block_idx_rst;
 localparam STAGE = 10;
 wire [BLOCK_IDX_WIDTH-1:0] i;
 wire [BLOCK_IDX_WIDTH-1:0] j;
+wire [FLAT_IDX_WIDTH-1:0] flat_idx;
 wire request_stop;
 
 reg [BLOCK_IDX_WIDTH-1:0] stage_i [0:STAGE];
 reg [BLOCK_IDX_WIDTH-1:0] stage_j [0:STAGE];
+reg [FLAT_IDX_WIDTH-1:0] stage_flat_idx [0:STAGE];
 reg stage_request_stop [0:STAGE];
 always @(*) begin
     stage_i[0] = i;
     stage_j[0] = j;
+    stage_flat_idx[0] = flat_idx;
     stage_request_stop[0] = request_stop;
 end
 
@@ -118,6 +124,7 @@ block_index_iterator #(
     .rst            (block_idx_rst),
     .i              (i),
     .j              (j),
+    .flat_idx       (flat_idx),
     .step           (step),
     .request_stop   (request_stop)
 );
@@ -126,6 +133,7 @@ generate
         always @(posedge clk) begin
             stage_i[gs+1] <= stage_i[gs];
             stage_j[gs+1] <= stage_j[gs];
+            stage_flat_idx[gs+1] <= stage_flat_idx[gs];
             stage_request_stop[gs+1] <= stage_request_stop[gs];
         end
     end
@@ -324,11 +332,12 @@ J_block_bram_loader #(
     .BLOCK_SIZE     (BLOCK_SIZE),
     .ENABLE_OUTREG  (J_OUTREG)
 ) J_block_bram_loader_i (
-    .clk    (clk),
-    .i      (stage_i[STAGE_J_LOAD]),
-    .j      (stage_j[STAGE_J_LOAD]),
-    .out_ij (J_local_ij),
-    .out_ji (J_local_ji)
+    .clk        (clk),
+    .i          (stage_i[STAGE_J_LOAD]),
+    .j          (stage_j[STAGE_J_LOAD]),
+    .flat_idx   (stage_flat_idx[STAGE_J_LOAD]),
+    .out_ij     (J_local_ij),
+    .out_ji     (J_local_ji)
 );
 
 

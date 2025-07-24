@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 module blink#(
-    parameter PERIOD = 'd33_333_333
+    parameter PERIOD = 'd100_000_000
 )(
     input wire clk,
     input wire rst,

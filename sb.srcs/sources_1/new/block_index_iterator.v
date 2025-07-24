@@ -3,6 +3,7 @@
 module block_index_iterator #(
     parameter N = 80,
     parameter WIDTH = $clog2(N),
+    parameter FLAT_IDX_WIDTH = $clog2(N+N*(N-1)/2),
     parameter STEPS = 5000,
     parameter STEP_WIDTH = $clog2(STEPS)
 ) (
@@ -10,6 +11,7 @@ module block_index_iterator #(
     input wire rst,
     output reg [WIDTH-1:0] i,
     output reg [WIDTH-1:0] j,
+    output reg [FLAT_IDX_WIDTH-1:0] flat_idx,
     output reg [STEP_WIDTH-1:0] step,
     output wire request_stop
 );
@@ -26,28 +28,38 @@ always @(posedge clk) begin
         j <= 0;
         step <= 0;
         is_first <= 1'b1;
+        flat_idx <= 0;
     end else begin
         if (i > j) begin
             i <= j;
             j <= i;
+            flat_idx <= flat_idx;
         end else if (i + 1 < j) begin
             i <= j - 1;
             j <= i + 1;
+            flat_idx <= flat_idx + 1;
         end else if (is_first) begin
             i <= s + 1;
             j <= 0;
+            flat_idx <= flat_idx + (N - s - 1) / 2 + 1;
         end else if (s >= N) begin
             i <= s - N;
             j <= 0;
+            if (s == N) flat_idx <= 0;
+            else        flat_idx <= flat_idx + 1;
         end else if (s + 2 >= N) begin
             i <= N - 1;
             j <= s + 2 - N;
+            flat_idx <= flat_idx + 1;
         end else begin // s < N-2
             i <= N - 1;
             j <= s + 2;
+            flat_idx <= flat_idx + 1;
         end
+
         if (i == N - 1 && j == N - 1)
             step <= step + 1;
+        
         if (s + 2 >= N)
             is_first <= 1'b0;
     end

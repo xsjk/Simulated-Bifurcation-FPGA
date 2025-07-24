@@ -19,6 +19,7 @@ module J_block_bram_loader #(
     input wire clk,
     input wire [BLOCK_IDX_WIDTH-1:0] i,
     input wire [BLOCK_IDX_WIDTH-1:0] j,
+    input wire [BLOCK_FLAT_IDX_WIDTH-1:0] flat_idx,
     output wire [0:BLOCK_DATA_WIDTH-1] out_ij,
     output wire [0:BLOCK_DATA_WIDTH-1] out_ji
 );
@@ -30,30 +31,19 @@ if (BLOCK_DATA_WIDTH > BRAM_DATA_WIDTH * 2) begin
     $error("BLOCK_DATA_WIDTH (%d) exceeds BRAM_DATA_WIDTH (%d) * 2, not enough bandwidth", BLOCK_DATA_WIDTH, BRAM_DATA_WIDTH);
 end
 
-wire [BLOCK_FLAT_IDX_WIDTH-1:0] block_idx_flat;
-
-to_flat_index #(
-    .N      (N_BLOCK_PER_ROW),
-    .WIDTH  (BLOCK_IDX_WIDTH)
-) to_flat_index_i (
-    .i  (i),
-    .j  (j),
-    .o  (block_idx_flat)
-);
-
 wire [0:BRAM_DATA_WIDTH-1] douta;
 wire [0:BRAM_DATA_WIDTH-1] doutb;
 
 if (BLOCK_FLAT_IDX_WIDTH+1 > BRAM_ADDR_WIDTH) begin
-    $error("BRAM_ADDR_WIDTH (%d) is not enough to hold block_idx_flat (%d) + 1", BRAM_ADDR_WIDTH, BLOCK_FLAT_IDX_WIDTH);
+    $error("BRAM_ADDR_WIDTH (%d) is not enough to hold flat_idx (%d) + 1", BRAM_ADDR_WIDTH, BLOCK_FLAT_IDX_WIDTH);
 end 
 
 J_block_bram bram_i (
     .clka   (clk),
-    .addra  ({block_idx_flat, 1'b0}),
+    .addra  ({flat_idx, 1'b0}),
     .douta  (douta),
     .clkb   (clk),
-    .addrb  ({block_idx_flat, 1'b1}),
+    .addrb  ({flat_idx, 1'b1}),
     .doutb  (doutb)
 );
 
