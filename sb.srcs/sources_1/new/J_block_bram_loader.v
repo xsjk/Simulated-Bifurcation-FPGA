@@ -13,6 +13,7 @@ module J_block_bram_loader #(
     parameter BRAM_ADDR_DEPTH = 1024,
     parameter BRAM_ADDR_WIDTH = $clog2(BRAM_ADDR_DEPTH),
 
+    parameter ENABLE_TRANSPOSEREG = 0,
     parameter ENABLE_OUTREG = 0
 )
 (
@@ -65,9 +66,7 @@ end
 
 
 reg is_lower_block;
-always @(posedge clk) begin
-    is_lower_block <= (i > j);
-end
+always @(posedge clk) is_lower_block <= (i > j);
 
 transpose #(
     .N  (BLOCK_SIZE),
@@ -78,18 +77,35 @@ transpose #(
     .out    (upper_block)
 );
 
+
+reg [0:BLOCK_DATA_WIDTH-1] upper_block_reg;
+reg [0:BLOCK_DATA_WIDTH-1] lower_block_reg;
+reg is_lower_block_reg;
+if (ENABLE_TRANSPOSEREG)
+    always @(posedge clk) begin
+        upper_block_reg <= upper_block;
+        lower_block_reg <= lower_block;
+        is_lower_block_reg <= is_lower_block;
+    end
+else
+    always @(*) begin
+        upper_block_reg = upper_block;
+        lower_block_reg = lower_block;
+        is_lower_block_reg = is_lower_block;
+    end
+
 if (ENABLE_OUTREG) begin
     reg [0:BLOCK_DATA_WIDTH-1] out_ij_reg;
     reg [0:BLOCK_DATA_WIDTH-1] out_ji_reg;
     always @(posedge clk) begin
-        out_ij_reg <= is_lower_block ? lower_block : upper_block;
-        out_ji_reg <= is_lower_block ? upper_block : lower_block;
+        out_ij_reg <= is_lower_block_reg ? lower_block_reg : upper_block_reg;
+        out_ji_reg <= is_lower_block_reg ? upper_block_reg : lower_block_reg;
     end
     assign out_ij = out_ij_reg;
     assign out_ji = out_ji_reg;
 end else begin
-    assign out_ij = is_lower_block ? lower_block : upper_block;
-    assign out_ji = is_lower_block ? upper_block : lower_block;
+    assign out_ij = is_lower_block_reg ? lower_block_reg : upper_block_reg;
+    assign out_ji = is_lower_block_reg ? upper_block_reg : lower_block_reg;
 end
 
 endmodule

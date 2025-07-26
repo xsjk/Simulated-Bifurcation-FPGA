@@ -35,7 +35,8 @@ module block_sSB  #(
 
     parameter X_NEXT_WIDTH = 1 + ((X_HAT_WIDTH > Y_HAT_WIDTH) ? X_HAT_WIDTH : Y_HAT_WIDTH), // Width for x + y_hat
 
-    parameter BLOCK_MATMUL_N_CHUNK = 10, // Number of chunks for block matrix multiplication
+    parameter BLOCK_MATMUL_LEVEL1 = 12,
+    parameter BLOCK_MATMUL_LEVEL2 = 4,
 
     parameter OUT_BRAM_WIDTH = 32,  // Width of output BRAM
     parameter OUT_BRAM_DEPTH = 10,   // Depth of output BRAM
@@ -100,7 +101,7 @@ assign initializing = (state == INIT);
 reg block_idx_rst;
 
 // Block Index Iterator
-localparam STAGE = 10;
+localparam STAGE = 12;
 wire [BLOCK_IDX_WIDTH-1:0] i;
 wire [BLOCK_IDX_WIDTH-1:0] j;
 wire [FLAT_IDX_WIDTH-1:0] flat_idx;
@@ -109,12 +110,14 @@ wire request_stop;
 reg [BLOCK_IDX_WIDTH-1:0] stage_i [0:STAGE];
 reg [BLOCK_IDX_WIDTH-1:0] stage_j [0:STAGE];
 reg [FLAT_IDX_WIDTH-1:0] stage_flat_idx [0:STAGE];
+reg stage_is_diagonal [0:STAGE];
 reg stage_request_stop [0:STAGE];
 always @(*) begin
     stage_i[0] = i;
     stage_j[0] = j;
     stage_flat_idx[0] = flat_idx;
     stage_request_stop[0] = request_stop;
+    stage_is_diagonal[0] = (i == j);
 end
 
 wire [STEP_WIDTH-1:0] step;
@@ -137,6 +140,7 @@ generate
             stage_j[gs+1] <= stage_j[gs];
             stage_flat_idx[gs+1] <= stage_flat_idx[gs];
             stage_request_stop[gs+1] <= stage_request_stop[gs];
+            stage_is_diagonal[gs+1] <= stage_is_diagonal[gs];
         end
     end
 endgenerate
@@ -152,21 +156,21 @@ end
 
 
 
-/*   0         1        2         3             4          5             6            7            8            9              10
- *
- *             j ---- x_hat -
- *                           \
- *  i,j ------ J  ----- J ----- mm_dot ---- mm_local -- mm_out -         i --------              y_fix --       i ---------
- *                                                              \                /                        \              /
- *                                              i ----- mm_acc ---- mm_acc_new ---- g_fix ------ g_hat ----- y_fix_new --
- *                                                              /               /                        /
- *                                                         j ---    --- lhs ----                - oob ---
- *                                                                 /                           /
- *                                              i ------ x_fix ------- x_fix ---              -- r_oob ---                     i ---------
- *                                                                              \            / - l_oob -- \                             /
- *                                              i ------ y_fix ------- y_hat ------ x_next ----- x_next ---- x_fix_new ---- x_hat_new --
- *                                                                 \                           x_init_sign /              \
- *                                                                  -- y_fix ------ y_fix ------ y_fix           i ---------
+/*   0        1        2         3         4          5           6          7              8            9            10          11             12 
+ *                    
+ *                     j ---- x_hat -            
+ *                                   \            
+ *  i,j ----- J ------ J  ----- J ----- mm_dot ---- mm_lv1 ---- mm_lv2 --- mm_out -         i --------              y_fix --       i ---------
+ *                                                                                 \                /                        \              /
+ *                                                                 i ----- mm_acc ---- mm_acc_new ---- g_fix ------ g_hat ----- y_fix_new --
+ *                                                                                 /               /                        /
+ *                                                                            j ---    --- lhs ----                - oob ---
+ *                                                                                    /                           /
+ *                                                                 i ------ x_fix ------- x_fix ---              -- r_oob ---                     i ---------
+ *                                                                                                 \            / - l_oob -- \                             /
+ *                                                                 i ------ y_fix ------- y_hat ------ x_next ----- x_next ---- x_fix_new ---- x_hat_new --
+ *                                                                                    \                           x_init_sign /              \
+ *                                                                                     -- y_fix ------ y_fix ------ y_fix           i ---------
  */
 
 
@@ -174,20 +178,22 @@ end
 localparam X_HAT_IS_BRAM = 0;
 localparam X_HAT_OUTREG = 1;
 
-localparam STAGE_X_HAT_LOAD = 1;
+localparam STAGE_X_HAT_LOAD = 2;
 localparam STAGE_X_HAT_ARRIVE = STAGE_X_HAT_LOAD + X_HAT_IS_BRAM + X_HAT_OUTREG;
 
 
 // Calculate the stage of J
 localparam J_IS_BRAM = 1;
 localparam J_OUTREG = 1;
-localparam BLOCK_MATMUL_DOTREG = 1;
-localparam BLOCK_MATMUL_LOCALREG = 1;
+localparam J_TRANSPOSE_REG = 1;
+localparam BLOCK_MATMUL_PROGREG = 1;
+localparam BLOCK_MATMUL_LEVEL1REG = 1;
+localparam BLOCK_MATMUL_LEVEL2REG = 1;
 localparam BLOCK_MATMUL_OUTREG = 1;
 
 localparam STAGE_J_LOAD = 0;
-localparam STAGE_J_ARRIVE = STAGE_J_LOAD + J_IS_BRAM + J_OUTREG;
-localparam STAGE_MATMUL_OUT_ARRIVE = STAGE_J_ARRIVE + BLOCK_MATMUL_DOTREG + BLOCK_MATMUL_LOCALREG + BLOCK_MATMUL_OUTREG;
+localparam STAGE_J_ARRIVE = STAGE_J_LOAD + J_IS_BRAM + J_TRANSPOSE_REG + J_OUTREG;
+localparam STAGE_MATMUL_OUT_ARRIVE = STAGE_J_ARRIVE + BLOCK_MATMUL_PROGREG + BLOCK_MATMUL_LEVEL1REG + BLOCK_MATMUL_LEVEL2REG + BLOCK_MATMUL_OUTREG;
 
 if (STAGE_X_HAT_ARRIVE != STAGE_J_ARRIVE)
     $error("`x_hat_j` data arrival stage (%d) does not match `J_local_ij` arrival stage (%d), cannot calculate `block_matmul_out_i` correctly.", STAGE_X_HAT_ARRIVE, STAGE_J_ARRIVE);
@@ -198,7 +204,7 @@ localparam BLOCK_MATMUL_ACC_IS_BRAM = 0;
 localparam BLOCK_MATMUL_ACC_OUTREG = 1;
 localparam BLOCK_MATMUL_ACCREG = 1;
 
-localparam STAGE_BLOCK_MATMUL_ACC_LOAD = 4;
+localparam STAGE_BLOCK_MATMUL_ACC_LOAD = 6;
 localparam STAGE_BLOCK_MATMUL_ACC_ARRIVE = STAGE_BLOCK_MATMUL_ACC_LOAD + BLOCK_MATMUL_ACC_IS_BRAM + BLOCK_MATMUL_ACC_OUTREG;
 
 if (STAGE_BLOCK_MATMUL_ACC_ARRIVE != STAGE_MATMUL_OUT_ARRIVE)
@@ -211,13 +217,13 @@ localparam STAGE_BLOCK_MATMUL_ACC_NEW_ARRIVE = STAGE_BLOCK_MATMUL_ACC_ARRIVE + B
 localparam X_FIX_IS_BRAM = 0;
 localparam X_FIX_OUTREG = 1;
 
-localparam STAGE_X_FIX_LOAD = 4;
+localparam STAGE_X_FIX_LOAD = 6;
 localparam STAGE_X_FIX_ARRIVE = STAGE_X_FIX_LOAD + X_FIX_IS_BRAM + X_FIX_OUTREG;
 
 localparam Y_FIX_IS_BRAM = 0;
 localparam Y_FIX_OUTREG = 1;
 
-localparam STAGE_Y_FIX_LOAD = 4;
+localparam STAGE_Y_FIX_LOAD = 6;
 localparam STAGE_Y_FIX_ARRIVE = STAGE_Y_FIX_LOAD + Y_FIX_IS_BRAM + Y_FIX_OUTREG;
 
 
@@ -315,6 +321,7 @@ dual_lutram_gen #(
     .WIDTH          (BLOCK_SIZE * X_HAT_WIDTH),
     .DEPTH          (N_BLOCK_PER_ROW),
     .ADDR_WIDTH     (BLOCK_IDX_WIDTH),
+    .ENABLE_OUTREGA (1),
     .ENABLE_OUTREGB (X_HAT_OUTREG)
 ) x_hat_mem (
     .clk    (clk),
@@ -332,9 +339,10 @@ dual_lutram_gen #(
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ij;
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ji;
 J_block_bram_loader #(
-    .N              (N),
-    .BLOCK_SIZE     (BLOCK_SIZE),
-    .ENABLE_OUTREG  (J_OUTREG)
+    .N                      (N),
+    .BLOCK_SIZE             (BLOCK_SIZE),
+    .ENABLE_TRANSPOSEREG    (J_TRANSPOSE_REG),
+    .ENABLE_OUTREG          (J_OUTREG)
 ) J_block_bram_loader_i (
     .clk        (clk),
     .i          (stage_i[STAGE_J_LOAD]),
@@ -388,15 +396,17 @@ wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_i_packed;
 matmul #(
     .N                  (BLOCK_SIZE),
     .M                  (BLOCK_SIZE),
-    .CHUNK              (BLOCK_MATMUL_N_CHUNK),
-    .ENABLE_DOTREG      (BLOCK_MATMUL_DOTREG),
-    .ENABLE_LOCALREG    (BLOCK_MATMUL_LOCALREG),
+    .LEVEL1_GROUPS      (BLOCK_MATMUL_LEVEL1),
+    .LEVEL2_GROUPS      (BLOCK_MATMUL_LEVEL2),
+    .ENABLE_PRODREG     (BLOCK_MATMUL_PROGREG),
+    .ENABLE_LEVEL1REG   (BLOCK_MATMUL_LEVEL1REG),
+    .ENABLE_LEVEL2REG   (BLOCK_MATMUL_LEVEL2REG),
     .ENABLE_OUTREG      (BLOCK_MATMUL_OUTREG)
 ) matmul_i (
     .clk            (clk),
     .J              (J_local_ij),
     .x              (x_hat_j_packed),
-    .is_diagonal    (stage_i[STAGE_J_ARRIVE] == stage_j[STAGE_J_ARRIVE]),
+    .is_diagonal    (stage_is_diagonal[STAGE_J_ARRIVE]),
     .out            (block_matmul_out_i_packed)
 );
 
@@ -594,6 +604,7 @@ reg [K_N-1:0] write_begin;
 wire [K_N:0] read_end = read_begin + BLOCK_SIZE;
 wire [K_N:0] write_end = write_begin + OUT_BRAM_WIDTH;
 reg signed [LOCAL_IDX_WIDTH:0] read_offset;
+reg block_loading; // since ENABLE_OUTREGA of x_hat_mem is enabled
 
 initial begin
     state <= STOPPED;
@@ -642,7 +653,9 @@ always @(posedge clk) begin
                 read_begin <= 0;
                 write_begin <= 0;
                 read_offset <= 0;
+
                 block_idx <= 0;
+                block_loading <= 1;
                 out_idx <= 0;
 
                 BRAM_addr <= 0;
@@ -653,59 +666,65 @@ always @(posedge clk) begin
         end
 
         WRITE: begin
+            
+            block_loading <= 0;
+            if (block_loading == 0) begin
 
-            // Fetch the sign of x and pack to BRAM_din
-            for (k = 0; k < OUT_BRAM_WIDTH; k = k + 1) begin
-                if (write_begin + k < read_begin) begin
-                    BRAM_din[k] <= BRAM_din[k]; // Keep the previous value
-                end else if (write_begin + k < read_end) begin
-                    BRAM_din[k] <= x_hat_i_packed[(read_offset + k) * X_HAT_WIDTH];
-                end else begin
-                    BRAM_din[k] <= 0; // Fill the rest with zeros
+                // Fetch the sign of x and pack to BRAM_din
+                for (k = 0; k < OUT_BRAM_WIDTH; k = k + 1) begin
+                    if (write_begin + k < read_begin) begin
+                        BRAM_din[k] <= BRAM_din[k]; // Keep the previous value
+                    end else if (write_begin + k < read_end) begin
+                        BRAM_din[k] <= x_hat_i_packed[(read_offset + k) * X_HAT_WIDTH];
+                    end else begin
+                        BRAM_din[k] <= 0; // Fill the rest with zeros
+                    end
                 end
-            end
 
-            if (out_idx > WRITE_INDEX_MAX) begin
-                state <= STOPPED; // Stop after writing the last block
-            end
+                if (out_idx > WRITE_INDEX_MAX) begin
+                    state <= STOPPED; // Stop after writing the last block
+                end
 
-            // Default values for BRAM
-            BRAM_addr <= out_idx;
-            BRAM_we <= 4'b1111;
-            BRAM_en <= 1;
+                // Default values for BRAM
+                BRAM_addr <= out_idx;
+                BRAM_we <= 4'b1111;
+                BRAM_en <= 1;
 
-            if (write_end > read_end) begin
-                /*
-                 *  read:  |<------------------->|
-                 *  write:              |<--------->|
-                 */
-                // Next read block
-                block_idx <= block_idx + 1;
-                read_begin <= read_begin + BLOCK_SIZE;
-                read_offset <= read_offset - BLOCK_SIZE;
+                if (write_end > read_end) begin
+                    /*
+                    *  read:  |<------------------->|
+                    *  write:              |<--------->|
+                    */
+                    // Next read block
+                    block_idx <= block_idx + 1;
+                    block_loading <= 1;
+                    read_begin <= read_begin + BLOCK_SIZE;
+                    read_offset <= read_offset - BLOCK_SIZE;
 
-                // Don't write to BRAM
-                BRAM_we <= 0;
+                    // Don't write to BRAM
+                    BRAM_we <= 0;
 
-            end else if (write_begin < read_begin) begin
-                /*
-                 *  read:      |<------------------->|
-                 *  write: |<--------->|
-                 */
-                // Next write index
-                out_idx <= out_idx + 1;
-                write_begin <= write_begin + OUT_BRAM_WIDTH;
-                read_offset <= read_offset + OUT_BRAM_WIDTH;
+                end else if (write_begin < read_begin) begin
+                    /*
+                    *  read:      |<------------------->|
+                    *  write: |<--------->|
+                    */
+                    // Next write index
+                    out_idx <= out_idx + 1;
+                    write_begin <= write_begin + OUT_BRAM_WIDTH;
+                    read_offset <= read_offset + OUT_BRAM_WIDTH;
 
-            end else begin
-                /*
-                 *  read:  |<------------------->|
-                 *  write:     |<--------->|
-                 */
-                // Next write index
-                out_idx <= out_idx + 1;
-                write_begin <= write_begin + OUT_BRAM_WIDTH;
-                read_offset <= read_offset + OUT_BRAM_WIDTH;
+                end else begin
+                    /*
+                    *  read:  |<------------------->|
+                    *  write:     |<--------->|
+                    */
+                    // Next write index
+                    out_idx <= out_idx + 1;
+                    write_begin <= write_begin + OUT_BRAM_WIDTH;
+                    read_offset <= read_offset + OUT_BRAM_WIDTH;
+                end
+
             end
         end
     endcase
