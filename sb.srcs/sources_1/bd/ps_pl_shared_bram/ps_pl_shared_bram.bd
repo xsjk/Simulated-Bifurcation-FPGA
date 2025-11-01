@@ -1,0 +1,190 @@
+{
+  "design": {
+    "design_info": {
+      "boundary_crc": "0x939D21C170920CC6",
+      "device": "xc7z020clg484-1",
+      "gen_directory": "../../../../sb.gen/sources_1/bd/ps_pl_shared_bram",
+      "name": "ps_pl_shared_bram",
+      "rev_ctrl_bd_flag": "RevCtrlBdOff",
+      "synth_flow_mode": "Hierarchical",
+      "tool_version": "2024.2",
+      "validated": "true"
+    },
+    "design_tree": {
+      "blk_mem_gen_0": ""
+    },
+    "interface_ports": {
+      "A": {
+        "mode": "Slave",
+        "vlnv_bus_definition": "xilinx.com:interface:bram:1.0",
+        "vlnv": "xilinx.com:interface:bram_rtl:1.0",
+        "parameters": {
+          "MASTER_TYPE": {
+            "value": "OTHER",
+            "value_src": "default"
+          },
+          "MEM_ECC": {
+            "value": "NONE",
+            "value_src": "default"
+          },
+          "MEM_SIZE": {
+            "value": "8192",
+            "value_src": "default"
+          },
+          "MEM_WIDTH": {
+            "value": "32",
+            "value_src": "default"
+          },
+          "READ_LATENCY": {
+            "value": "1",
+            "value_src": "default"
+          }
+        },
+        "port_maps": {
+          "ADDR": {
+            "physical_name": "A_addr",
+            "direction": "I",
+            "left": "9",
+            "right": "0"
+          },
+          "CLK": {
+            "physical_name": "A_clk",
+            "direction": "I"
+          },
+          "DIN": {
+            "physical_name": "A_din",
+            "direction": "I",
+            "left": "31",
+            "right": "0"
+          },
+          "DOUT": {
+            "physical_name": "A_dout",
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "EN": {
+            "physical_name": "A_en",
+            "direction": "I"
+          },
+          "WE": {
+            "physical_name": "A_we",
+            "direction": "I",
+            "left": "3",
+            "right": "0"
+          }
+        }
+      },
+      "B": {
+        "mode": "Slave",
+        "vlnv_bus_definition": "xilinx.com:interface:bram:1.0",
+        "vlnv": "xilinx.com:interface:bram_rtl:1.0",
+        "parameters": {
+          "MASTER_TYPE": {
+            "value": "OTHER",
+            "value_src": "default"
+          },
+          "MEM_ECC": {
+            "value": "NONE",
+            "value_src": "default"
+          },
+          "MEM_SIZE": {
+            "value": "8192",
+            "value_src": "default"
+          },
+          "MEM_WIDTH": {
+            "value": "32",
+            "value_src": "default"
+          },
+          "READ_LATENCY": {
+            "value": "1",
+            "value_src": "default"
+          }
+        },
+        "port_maps": {
+          "ADDR": {
+            "physical_name": "B_addr",
+            "direction": "I",
+            "left": "9",
+            "right": "0"
+          },
+          "CLK": {
+            "physical_name": "B_clk",
+            "direction": "I"
+          },
+          "DIN": {
+            "physical_name": "B_din",
+            "direction": "I",
+            "left": "31",
+            "right": "0"
+          },
+          "DOUT": {
+            "physical_name": "B_dout",
+            "direction": "O",
+            "left": "31",
+            "right": "0"
+          },
+          "EN": {
+            "physical_name": "B_en",
+            "direction": "I"
+          },
+          "WE": {
+            "physical_name": "B_we",
+            "direction": "I",
+            "left": "3",
+            "right": "0"
+          }
+        }
+      }
+    },
+    "components": {
+      "blk_mem_gen_0": {
+        "vlnv": "xilinx.com:ip:blk_mem_gen:8.4",
+        "ip_revision": "9",
+        "xci_name": "ps_pl_shared_bram_blk_mem_gen_0_0",
+        "xci_path": "ip/ps_pl_shared_bram_blk_mem_gen_0_0/ps_pl_shared_bram_blk_mem_gen_0_0.xci",
+        "inst_hier_path": "blk_mem_gen_0",
+        "parameters": {
+          "Byte_Size": {
+            "value": "8"
+          },
+          "Memory_Type": {
+            "value": "True_Dual_Port_RAM"
+          },
+          "Register_PortA_Output_of_Memory_Primitives": {
+            "value": "false"
+          },
+          "Register_PortB_Output_of_Memory_Primitives": {
+            "value": "false"
+          },
+          "Use_Byte_Write_Enable": {
+            "value": "true"
+          },
+          "Write_Depth_A": {
+            "value": "1024"
+          },
+          "Write_Width_A": {
+            "value": "32"
+          },
+          "use_bram_block": {
+            "value": "Stand_Alone"
+          }
+        }
+      }
+    },
+    "interface_nets": {
+      "BRAM_PORTA_0_1": {
+        "interface_ports": [
+          "A",
+          "blk_mem_gen_0/BRAM_PORTA"
+        ]
+      },
+      "BRAM_PORTB_0_1": {
+        "interface_ports": [
+          "B",
+          "blk_mem_gen_0/BRAM_PORTB"
+        ]
+      }
+    }
+  }
+}

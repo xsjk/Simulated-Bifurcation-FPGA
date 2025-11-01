@@ -1,0 +1,111 @@
+{
+  "design": {
+    "design_info": {
+      "boundary_crc": "0xB02D5BABB02D5BAB",
+      "device": "xc7z020clg484-1",
+      "gen_directory": "../../../../sb.gen/sources_1/bd/dual_lutram_unit",
+      "name": "dual_lutram_unit",
+      "rev_ctrl_bd_flag": "RevCtrlBdOff",
+      "synth_flow_mode": "Hierarchical",
+      "tool_version": "2024.2",
+      "validated": "true"
+    },
+    "design_tree": {
+      "dist_mem_gen_0": ""
+    },
+    "ports": {
+      "a": {
+        "direction": "I",
+        "left": "5",
+        "right": "0"
+      },
+      "dpra": {
+        "direction": "I",
+        "left": "5",
+        "right": "0"
+      },
+      "clk": {
+        "direction": "I"
+      },
+      "spo": {
+        "direction": "O",
+        "left": "0",
+        "right": "0"
+      },
+      "dpo": {
+        "direction": "O",
+        "left": "0",
+        "right": "0"
+      },
+      "we": {
+        "direction": "I"
+      },
+      "d": {
+        "direction": "I",
+        "left": "0",
+        "right": "0"
+      }
+    },
+    "components": {
+      "dist_mem_gen_0": {
+        "vlnv": "xilinx.com:ip:dist_mem_gen:8.0",
+        "ip_revision": "15",
+        "xci_name": "dual_lutram_unit_dist_mem_gen_0_0",
+        "xci_path": "ip/dual_lutram_unit_dist_mem_gen_0_0/dual_lutram_unit_dist_mem_gen_0_0.xci",
+        "inst_hier_path": "dist_mem_gen_0",
+        "parameters": {
+          "data_width": {
+            "value": "1"
+          },
+          "memory_type": {
+            "value": "dual_port_ram"
+          }
+        }
+      }
+    },
+    "nets": {
+      "a_0_1": {
+        "ports": [
+          "a",
+          "dist_mem_gen_0/a"
+        ]
+      },
+      "clk_0_1": {
+        "ports": [
+          "clk",
+          "dist_mem_gen_0/clk"
+        ]
+      },
+      "d_0_1": {
+        "ports": [
+          "d",
+          "dist_mem_gen_0/d"
+        ]
+      },
+      "dist_mem_gen_0_dpo": {
+        "ports": [
+          "dist_mem_gen_0/dpo",
+          "dpo"
+        ]
+      },
+      "dist_mem_gen_0_spo": {
+        "ports": [
+          "dist_mem_gen_0/spo",
+          "spo"
+        ]
+      },
+      "dpra_0_1": {
+        "ports": [
+          "dpra",
+          "dist_mem_gen_0/dpra"
+        ]
+      },
+      "we_0_1": {
+        "ports": [
+          "we",
+          "dist_mem_gen_0/we"
+        ]
+      }
+    }
+  }
+}
