@@ -30,7 +30,10 @@ module block_sSB  #(
     parameter Y_HAT_WIDTH = 1 + K_Y,                        // Width for y_hat
     parameter G_HAT_WIDTH = 1 + K_G,                        // Width for g_hat
     
-    parameter X_NEXT_WIDTH = 1 + ((X_HAT_WIDTH > Y_HAT_WIDTH) ? X_HAT_WIDTH : Y_HAT_WIDTH), // Width for x + y_hat
+    parameter X_NEXT_WIDTH = 1 + ((X_WIDTH > Y_HAT_WIDTH) ? X_WIDTH : Y_HAT_WIDTH), // Width for x + y_hat
+
+    parameter BLOCK_MATMUL_LEVEL1 = 12,
+    parameter BLOCK_MATMUL_LEVEL2 = 4,
 
     parameter OUT_BRAM_WIDTH = 32,  // Width of output BRAM
     parameter OUT_BRAM_DEPTH = 10,   // Depth of output BRAM
@@ -86,9 +89,9 @@ genvar gi;
 // Write index for output BRAM
 reg [WRITE_INDEX_WIDTH-1:0] out_idx;
 
-// Read addr of x_hat_j during writing phase
+// Read addr of x_hat_j during writing phase 
+// Also gives the write address for x_fix, y_fix, x_hat during initialization phase
 reg [BLOCK_IDX_WIDTH-1:0] block_idx;
-
 
 
 // State variables
@@ -149,8 +152,13 @@ generate
 endgenerate
 
 
-localparam STAGE_X_LOAD = 2;
-localparam STAGE_Y_LOAD = 2;
+localparam BLOCK_MATMUL_PROGREG = 1;
+localparam BLOCK_MATMUL_LEVEL1REG = 1;
+localparam BLOCK_MATMUL_LEVEL2REG = 1;
+localparam BLOCK_MATMUL_OUTREG = 1;
+
+localparam STAGE_X_LOAD = 6;
+localparam STAGE_Y_LOAD = 6;
 localparam STAGE_X_HAT_LOAD = 2;
 localparam STAGE_J_LOAD = 1; 
 
@@ -159,12 +167,46 @@ localparam STAGE_Y_ARRIVE = STAGE_Y_LOAD;
 localparam STAGE_X_HAT_ARRIVE = STAGE_X_HAT_LOAD;
 localparam STAGE_J_ARRIVE = STAGE_J_LOAD + 1;
 
+// Block Matrix multiplication
+if (STAGE_J_ARRIVE != STAGE_X_HAT_ARRIVE) begin
+    $error("Error: Input stages of J * x_hat doesnot match");
+end
+
+localparam STAGE_MATMUL_OUT = STAGE_J_ARRIVE + BLOCK_MATMUL_PROGREG + BLOCK_MATMUL_LEVEL1REG + BLOCK_MATMUL_LEVEL2REG + BLOCK_MATMUL_OUTREG;
+localparam STAGE_L_ARRIVE = STAGE_MATMUL_OUT;
+
+if (STAGE_L_ARRIVE != STAGE_X_ARRIVE) begin
+    $error("Error: Input stages of g = g(L, x) doesnot match");
+end
+
 localparam STAGE_G_ARRIVE = STAGE_L_ARRIVE;
 localparam STAGE_G_HAT_ARRIVE = STAGE_G_ARRIVE;
+
+if (STAGE_G_HAT_ARRIVE != STAGE_Y_ARRIVE) begin
+    $error("Error: Input stages of y += g_hat doesnot match");
+end
+
 localparam STAGE_Y_NEXT_ARRIVE = STAGE_Y_ARRIVE; 
-localparam STAGE_Y_HAT_ARRIVE = STAGE_Y_NEXT_ARRIVE;
-localparam STAGE_X_NEXT_ARRIVE = STAGE_Y_HAT_ARRIVE;
-localparam STAGE_X_HAT_NEW_ARRIVE = STAGE_X_NEXT_ARRIVE;
+localparam STAGE_Y_SGN_ARRIVE = STAGE_Y_NEXT_ARRIVE;
+
+if (STAGE_Y_SGN_ARRIVE != STAGE_X_ARRIVE) begin
+    $error("Error: Input stages of x += y_sgn doesnot match");
+end
+
+localparam STAGE_X_NEXT_ARRIVE = STAGE_Y_SGN_ARRIVE;
+localparam STAGE_OOB_ARRIVE = STAGE_X_NEXT_ARRIVE;
+
+if (STAGE_OOB_ARRIVE != STAGE_X_NEXT_ARRIVE) begin
+    $error("Error: Input stages of x_new = oob ? -1/+1 : x_next doesnot match");
+end
+localparam STAGE_X_NEW_ARRIVE = STAGE_OOB_ARRIVE;
+
+if (STAGE_OOB_ARRIVE != STAGE_X_NEXT_ARRIVE) begin
+    $error("Error: Input stages of y_new = oob ? 0 : y_next doesnot match");
+end
+localparam STAGE_Y_NEW_ARRIVE = STAGE_OOB_ARRIVE;
+
+localparam STAGE_X_HAT_NEW_ARRIVE = STAGE_X_NEW_ARRIVE;
 
 
 // Stage indices for the block index iterator
@@ -174,14 +216,6 @@ always @(*) stage_init_block_idx[STAGE_X_NEXT_ARRIVE] = block_idx;
 generate
     for (gs = STAGE_X_NEXT_ARRIVE; gs < STAGE_X_HAT_NEW_ARRIVE; gs = gs + 1) begin : gen_stage_block_idx
         always @(posedge clk) stage_init_block_idx[gs+1] <= stage_init_block_idx[gs];
-    end
-endgenerate
-// store multi stages of block_idx to handle different reading stage of x_hat during writing phase
-reg [BLOCK_IDX_WIDTH-1:0] stage_write_block_idx [STAGE_X_HAT_LOAD:STAGE_X_HAT_NEW_ARRIVE];
-always @(*) stage_write_block_idx[STAGE_X_HAT_LOAD] = block_idx;
-generate
-    for (gs = STAGE_X_HAT_LOAD; gs < STAGE_X_HAT_NEW_ARRIVE; gs = gs + 1) begin : gen_stage_write_block_idx
-        always @(posedge clk) stage_write_block_idx[gs+1] <= stage_write_block_idx[gs];
     end
 endgenerate
 
@@ -229,9 +263,6 @@ wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_i_packed; // packed x_hat_i
 wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed; // packed x_hat_j
 wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_k_packed; // packed x_hat_k
 wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed_new; // packed x_hat_j_new
-if (STAGE_X_HAT_LOAD != STAGE_X_HAT_NEW_ARRIVE) begin
-    $error("Error: Output and input signal stages must match in order to share port a");
-end
 x_hat_mem #(
     .BLOCK_SIZE         (BLOCK_SIZE),
     .N_BLOCK_PER_ROW    (N_BLOCK_PER_ROW),
@@ -242,8 +273,8 @@ x_hat_mem #(
     .i      (stage_i[STAGE_X_HAT_LOAD]),
     .j      (stage_j[STAGE_X_HAT_LOAD]),
     .k      (initializing ? stage_init_block_idx[STAGE_X_HAT_NEW_ARRIVE] : 
-             running ? stage_j[STAGE_X_HAT_LOAD] : 
-             writing ? stage_write_block_idx[STAGE_X_HAT_LOAD] : 0),
+             running ? stage_j[STAGE_X_HAT_NEW_ARRIVE] : 
+             block_idx), // during writing phase, read based on block_idx
     .we_k   (initializing ? 1'b1 : // always write during initialization phase
              running ? stage_i[STAGE_X_HAT_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
              writing ? 1'b0 : // always read during writing phase
@@ -267,36 +298,40 @@ J_mem #(
     .upper_block    (J_local_ji)
 );
 
-
-// Block Matrix multiplication
-if (STAGE_J_ARRIVE != STAGE_X_HAT_ARRIVE) begin
-    $error("Error: Input signal stages of matmul doesnot match");
-end
-localparam STAGE_MATMUL_IN = STAGE_J_ARRIVE;
-
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_i_packed;
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_j_packed;
 matmul #(
-    .N      (BLOCK_SIZE),
-    .M      (BLOCK_SIZE),
-    .CHUNK  (1)
+    .N                  (BLOCK_SIZE),
+    .M                  (BLOCK_SIZE),
+    .LEVEL1_GROUPS      (BLOCK_MATMUL_LEVEL1),
+    .LEVEL2_GROUPS      (BLOCK_MATMUL_LEVEL2),
+    .ENABLE_PRODREG     (BLOCK_MATMUL_PROGREG),
+    .ENABLE_LEVEL1REG   (BLOCK_MATMUL_LEVEL1REG),
+    .ENABLE_LEVEL2REG   (BLOCK_MATMUL_LEVEL2REG),
+    .ENABLE_OUTREG      (BLOCK_MATMUL_OUTREG)
 ) matmul_ij (
+    .clk            (clk), 
     .J              (J_local_ij),
     .x              (x_hat_j_packed),
-    .is_diagonal    (stage_is_diagonal[STAGE_MATMUL_IN]),
+    .is_diagonal    (stage_is_diagonal[STAGE_J_ARRIVE]),
     .out            (block_matmul_out_i_packed)
 );
 matmul #(
-    .N      (BLOCK_SIZE),
-    .M      (BLOCK_SIZE),
-    .CHUNK  (1)
+    .N                  (BLOCK_SIZE),
+    .M                  (BLOCK_SIZE),
+    .LEVEL1_GROUPS      (BLOCK_MATMUL_LEVEL1),
+    .LEVEL2_GROUPS      (BLOCK_MATMUL_LEVEL2),
+    .ENABLE_PRODREG     (BLOCK_MATMUL_PROGREG),
+    .ENABLE_LEVEL1REG   (BLOCK_MATMUL_LEVEL1REG),
+    .ENABLE_LEVEL2REG   (BLOCK_MATMUL_LEVEL2REG),
+    .ENABLE_OUTREG      (BLOCK_MATMUL_OUTREG)
 ) matmul_ji (
+    .clk            (clk), 
     .J              (J_local_ji),
     .x              (x_hat_i_packed),
-    .is_diagonal    (stage_is_diagonal[STAGE_MATMUL_IN]),
+    .is_diagonal    (stage_is_diagonal[STAGE_J_ARRIVE]),
     .out            (block_matmul_out_j_packed)
 );
-localparam STAGE_MATMUL_OUT = STAGE_MATMUL_IN;
 
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] L_i_packed; // packed L_i 
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] L_j_packed; // packed L_j
@@ -316,7 +351,6 @@ L_mem #(
     .dout_i     (L_i_packed), // unused
     .dout_j     (L_j_packed)  // used as input for dynamics update
 );
-localparam STAGE_L_ARRIVE = STAGE_MATMUL_OUT;
 
 // unpacked L_j
 wire signed [0:MUL_WIDTH-1] L_j [0:BLOCK_SIZE-1];
@@ -332,11 +366,12 @@ endgenerate
 // Combinational logic for dynamics update
 wire x_fix_j_init_sign [0:BLOCK_SIZE-1]; // 0 for positive, 1 for negative
 wire signed [X_WIDTH-1:0] x_fix_j [0:BLOCK_SIZE-1];
-wire signed [X_NEXT_WIDTH:0] x_fix_j_next [0:BLOCK_SIZE-1];
+wire signed [X_NEXT_WIDTH-1:0] x_fix_j_next [0:BLOCK_SIZE-1];
 wire signed [X_WIDTH-1:0] x_fix_j_new [0:BLOCK_SIZE-1];
 wire signed [X_HAT_WIDTH-1:0] x_hat_j_new [0:BLOCK_SIZE-1];
 
 wire signed [Y_WIDTH-1:0] y_fix_j [0:BLOCK_SIZE-1];
+wire signed [Y_WIDTH-1:0] y_fix_j_next [0:BLOCK_SIZE-1];
 wire signed [Y_WIDTH-1:0] y_fix_j_new [0:BLOCK_SIZE-1];
 wire signed [Y_HAT_WIDTH-1:0] y_hat_j [0:BLOCK_SIZE-1];
 
@@ -378,6 +413,7 @@ generate
 
         // y_fix_j fetch
         assign y_fix_j[gi] = y_fix_j_packed[gi*Y_WIDTH +: Y_WIDTH];
+        assign y_fix_j_next[gi] = y_fix_j[gi] + g_hat_j[gi];
 
         // y_hat_j generation
         rand_near #(
@@ -386,7 +422,7 @@ generate
             .RAND_WIDTH (K_ETA)
         ) r_y_i (
             .clk        (clk),
-            .in         (y_fix_j[gi]),
+            .in         (y_fix_j_next[gi]),
             .out        (y_hat_j[gi])
         );
 
@@ -406,7 +442,7 @@ generate
         assign y_fix_j_new[gi] = 
             initializing ? 0 :
             right_out_of_bounds[gi] || left_out_of_bounds[gi] ? 0 :
-            y_fix_j[gi] + g_hat_j[gi];
+            y_fix_j_next[gi];
 
 
         // x_hat_i_new generation
@@ -439,8 +475,8 @@ wire [K_N:0] read_end = read_begin + BLOCK_SIZE;
 wire [K_N:0] write_end = write_begin + OUT_BRAM_WIDTH;
 reg signed [LOCAL_IDX_WIDTH:0] read_offset;
 
-localparam X_HAT_J_LATENCY = 0;
-reg [$clog2(X_HAT_J_LATENCY):0] block_loading; // since ENABLE_OUTREG of x_hat_mem may be enabled
+localparam X_HAT_LATENCY = 0;
+reg [$clog2(X_HAT_LATENCY):0] block_loading; // since ENABLE_OUTREG of x_hat_mem may be enabled
 
 initial begin
     state <= STOPPED;
@@ -554,7 +590,7 @@ always @(posedge clk) begin
                 read_offset <= 0;
 
                 block_idx <= 0;
-                block_loading <= X_HAT_J_LATENCY;
+                block_loading <= X_HAT_LATENCY;
                 out_idx <= 0;
 
                 BRAM_addr <= 0;
