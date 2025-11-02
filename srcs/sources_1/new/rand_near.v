@@ -11,6 +11,10 @@ module rand_near #(
     output wire [OUT_WIDTH-1:0] out
 );
 
+if (RAND_WIDTH + OUT_WIDTH != WIDTH) begin
+    $error("Error: RAND_WIDTH + OUT_WIDTH must equal WIDTH");
+end
+
 if (WIDTH < RAND_WIDTH) begin
     $error("WIDTH (%d) must be greater than or equal to RAND_WIDTH (%d)", WIDTH, RAND_WIDTH);
 end else if (WIDTH == OUT_WIDTH) begin

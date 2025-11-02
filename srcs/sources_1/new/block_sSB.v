@@ -4,9 +4,7 @@ module block_sSB  #(
     parameter N = 2000,
     parameter BLOCK_SIZE = 80,
     parameter STEPS = 50000,
-    
-    parameter N_BLOCK_PER_ROW = N / BLOCK_SIZE, // Number of blocks per row
-    
+        
     parameter K_N = $clog2(N+1),                // Width for N
     parameter K_BLOCK = $clog2(BLOCK_SIZE+1),   // Width for block size
     parameter K_BETA = 14,                      // beta = 2^(-K_BETA)
@@ -17,29 +15,14 @@ module block_sSB  #(
     parameter K_G = 3,                          // |g| < 2^(K_G)
     parameter K_ALPHA = 2,                      // |sum(J_ij * x_i)| < 2^(-K_ALPHA) * N
 
-    parameter BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW),    // Width for block indices
-    parameter BLOCK_DATA_WIDTH = BLOCK_SIZE * BLOCK_SIZE,   // Width for flattened block data
-    parameter LOCAL_IDX_WIDTH = $clog2(BLOCK_SIZE),         // Width for inner block index
-    parameter STEP_WIDTH = $clog2(STEPS),                   // Width for step
-    parameter BLOCK_MUL_WIDTH = 1 + K_BLOCK,                // Width for sum(J_ij * x_i) on block level
-    parameter MUL_WIDTH = 1 + K_N - K_ALPHA,                // Width for sum(J_ij * x_i)
-    parameter X_WIDTH = 1 + K_X + K_ETA,                    // Width for x
-    parameter Y_WIDTH = 1 + K_Y + K_ETA,                    // Width for y
-    parameter G_WIDTH = 1 + K_G + (2*K_ETA+K_BETA),         // Width for g
-    parameter X_HAT_WIDTH = 1 + K_X,                        // Width for x_hat
-    parameter Y_HAT_WIDTH = 1 + K_Y,                        // Width for y_hat
-    parameter G_HAT_WIDTH = 1 + K_G,                        // Width for g_hat
-    
-    parameter X_NEXT_WIDTH = 1 + ((X_WIDTH > Y_HAT_WIDTH) ? X_WIDTH : Y_HAT_WIDTH), // Width for x + y_hat
+    parameter ENABLE_G_HAT = 1, // Enable stocastic update of g
+    parameter ENABLE_Y_HAT = 1, // Enable stocastic update of y
 
     parameter BLOCK_MATMUL_LEVEL1 = 12,
     parameter BLOCK_MATMUL_LEVEL2 = 4,
 
     parameter OUT_BRAM_WIDTH = 32,  // Width of output BRAM
     parameter OUT_BRAM_DEPTH = 10,   // Depth of output BRAM
-
-    parameter WRITE_INDEX_MAX = (N-1)/OUT_BRAM_WIDTH, // Maximum number of write indices
-    parameter WRITE_INDEX_WIDTH = $clog2(WRITE_INDEX_MAX+1), // Width for write index
 
     parameter RANDOM_INIT = 0 // Random initialization of x_fix
 )(
@@ -75,6 +58,35 @@ end
 if (BLOCK_SIZE < OUT_BRAM_WIDTH) begin
     $error("BLOCK_SIZE (%d) must be greater than or equal to OUT_BRAM_WIDTH (%d)", BLOCK_SIZE, OUT_BRAM_WIDTH);
 end
+
+// Derived parameters
+localparam N_BLOCK_PER_ROW = N / BLOCK_SIZE; // Number of blocks per row
+
+localparam BLOCK_MUL_WIDTH = 1 + K_BLOCK; // Width for sum(J_ij * x_i) on block level
+localparam MUL_WIDTH = 1 + K_N - K_ALPHA; // Width for sum(J_ij * x_i)
+
+localparam G_DECIMAL = 2*K_ETA + K_BETA;
+localparam Y_DECIMAL = ENABLE_G_HAT ? K_ETA : G_DECIMAL + K_ETA;
+localparam X_DECIMAL = ENABLE_Y_HAT ? K_ETA : Y_DECIMAL + K_BETA;
+localparam X_WIDTH = 1 + K_X + X_DECIMAL;   // Width for x
+localparam Y_WIDTH = 1 + K_Y + Y_DECIMAL;   // Width for y
+localparam G_WIDTH = 1 + K_G + G_DECIMAL;   // Width for g
+localparam X_ABS_MAX = 1 << X_DECIMAL;      // Maximum absolute value for x
+localparam X_HAT_WIDTH = 1 + K_X;           // Width for x_hat
+localparam Y_HAT_WIDTH = 1 + K_Y;           // Width for y_hat
+localparam G_HAT_WIDTH = 1 + K_G;           // Width for g_hat
+localparam X_DELTA_WIDTH = ENABLE_Y_HAT ? Y_HAT_WIDTH : Y_WIDTH;
+localparam Y_DELTA_WIDTH = ENABLE_G_HAT ? G_HAT_WIDTH : G_WIDTH;
+localparam X_NEXT_WIDTH = 1 + ((X_WIDTH > X_DELTA_WIDTH) ? X_WIDTH : X_DELTA_WIDTH); // Width for x + eta y
+localparam Y_NEXT_WIDTH = 1 + ((Y_WIDTH > Y_DELTA_WIDTH) ? Y_WIDTH : Y_DELTA_WIDTH); // Width for y + eta g
+
+localparam BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW);    // Width for block indices
+localparam BLOCK_DATA_WIDTH = BLOCK_SIZE * BLOCK_SIZE;   // Width for flattened block data
+localparam LOCAL_IDX_WIDTH = $clog2(BLOCK_SIZE);         // Width for inner block index
+localparam STEP_WIDTH = $clog2(STEPS);                   // Width for step
+
+localparam WRITE_INDEX_MAX = (N-1)/OUT_BRAM_WIDTH;          // Maximum number of write indices
+localparam WRITE_INDEX_WIDTH = $clog2(WRITE_INDEX_MAX+1);   // Width for write index
 
 
 // State definitions 
@@ -371,7 +383,7 @@ wire signed [X_WIDTH-1:0] x_fix_j_new [0:BLOCK_SIZE-1];
 wire signed [X_HAT_WIDTH-1:0] x_hat_j_new [0:BLOCK_SIZE-1];
 
 wire signed [Y_WIDTH-1:0] y_fix_j [0:BLOCK_SIZE-1];
-wire signed [Y_WIDTH-1:0] y_fix_j_next [0:BLOCK_SIZE-1];
+wire signed [Y_NEXT_WIDTH-1:0] y_fix_j_next [0:BLOCK_SIZE-1];
 wire signed [Y_WIDTH-1:0] y_fix_j_new [0:BLOCK_SIZE-1];
 wire signed [Y_HAT_WIDTH-1:0] y_hat_j [0:BLOCK_SIZE-1];
 
@@ -385,58 +397,64 @@ generate
     for (gi = 0; gi < BLOCK_SIZE; gi = gi + 1) begin : calculate_dynamics
 
         // Initialization of x_fix_j_init_sign
-        if (RANDOM_INIT) begin
+        if (RANDOM_INIT)
             rand #(
                 .WIDTH  (1)
             ) r_x_init (
                 .clk    (clk),
                 .out    (x_fix_j_init_sign[gi])
             );
-        end else begin
+        else
             assign x_fix_j_init_sign[gi] = 1'b0; // Default to positive 
-        end
+
 
         // g_fix_j calculation
-        assign g_fix_j[gi] = ($signed({1'b0, step}) - (1 << (K_BETA + K_ETA))) * x_fix_j[gi] + 
-                              $signed({L_j[gi], {(K_BETA + 2*K_ETA - K_XI){1'b0}}});
+        assign g_fix_j[gi] = ($signed({1'b0, step}) - (1 << (G_DECIMAL - K_ETA))) * x_fix_j[gi] + 
+                              $signed({L_j[gi], {(G_DECIMAL - K_XI){1'b0}}});
 
         // g_hat_j generation
-        rand_near #(
-            .WIDTH      (G_WIDTH),
-            .OUT_WIDTH  (G_HAT_WIDTH),
-            .RAND_WIDTH (2*K_ETA+K_BETA)
-        ) r_g_i (
-            .clk        (clk),
-            .in         (g_fix_j[gi]),
-            .out        (g_hat_j[gi])
-        );
+        if (ENABLE_G_HAT)
+            rand_near #(
+                .WIDTH      (G_WIDTH),
+                .OUT_WIDTH  (G_HAT_WIDTH),
+                .RAND_WIDTH (G_DECIMAL)
+            ) r_g_i (
+                .clk        (clk),
+                .in         (g_fix_j[gi]),
+                .out        (g_hat_j[gi])
+            );
+
 
         // y_fix_j fetch
         assign y_fix_j[gi] = y_fix_j_packed[gi*Y_WIDTH +: Y_WIDTH];
-        assign y_fix_j_next[gi] = y_fix_j[gi] + g_hat_j[gi];
+        if (ENABLE_G_HAT)   assign y_fix_j_next[gi] = y_fix_j[gi] + g_hat_j[gi];
+        else                assign y_fix_j_next[gi] = y_fix_j[gi] + g_fix_j[gi];
 
         // y_hat_j generation
-        rand_near #(
-            .WIDTH      (Y_WIDTH),
-            .OUT_WIDTH  (Y_HAT_WIDTH),
-            .RAND_WIDTH (K_ETA)
-        ) r_y_i (
-            .clk        (clk),
-            .in         (y_fix_j_next[gi]),
-            .out        (y_hat_j[gi])
-        );
+        if (ENABLE_Y_HAT)
+            rand_near #(
+                .WIDTH      (Y_WIDTH),
+                .OUT_WIDTH  (Y_HAT_WIDTH),
+                .RAND_WIDTH (Y_DECIMAL)
+            ) r_y_i (
+                .clk        (clk),
+                .in         (y_fix_j_next[gi]),
+                .out        (y_hat_j[gi])
+            );
+
 
         // x_fix_j fetch 
         assign x_fix_j[gi] = x_fix_j_packed[gi*X_WIDTH +: X_WIDTH];
-        assign x_fix_j_next[gi] = x_fix_j[gi] + y_hat_j[gi];
+        if (ENABLE_Y_HAT)   assign x_fix_j_next[gi] = x_fix_j[gi] + y_hat_j[gi];
+        else                assign x_fix_j_next[gi] = x_fix_j[gi] + y_fix_j_next[gi];
 
-        assign right_out_of_bounds[gi] = x_fix_j_next[gi] > (1 << K_ETA);
-        assign left_out_of_bounds[gi] = x_fix_j_next[gi] < -(1 << K_ETA);
+        assign right_out_of_bounds[gi] = x_fix_j_next[gi] > X_ABS_MAX;
+        assign left_out_of_bounds[gi] = x_fix_j_next[gi] < -X_ABS_MAX;
 
         assign x_fix_j_new[gi] = 
-            initializing ? (x_fix_j_init_sign[gi] ? -1 : 1) : 
-            right_out_of_bounds[gi] ? 1 << K_ETA :
-            left_out_of_bounds[gi] ? -1 << K_ETA :
+            initializing ? (x_fix_j_init_sign[gi] ? -X_ABS_MAX : X_ABS_MAX) : 
+            right_out_of_bounds[gi] ? X_ABS_MAX :
+            left_out_of_bounds[gi] ? -X_ABS_MAX :
             x_fix_j_next[gi];
             
         assign y_fix_j_new[gi] = 
@@ -449,7 +467,7 @@ generate
         rand_near #(
             .WIDTH      (X_WIDTH),
             .OUT_WIDTH  (X_HAT_WIDTH),
-            .RAND_WIDTH  (K_ETA)
+            .RAND_WIDTH (X_DECIMAL)
         ) r_x_i (
             .clk        (clk),
             .in         (x_fix_j_new[gi]),
