@@ -1,15 +1,5 @@
-# Vivado generated directories 
-*.cache/
-*.gen/
-*.hw/
-*.ip_user_files/
-*.runs/
-*.sim/
-.Xil/
-NA/
+# Generated Vivado Project Root
+build/
 
-# Vivado generated files
-*.xsa
-*.log
-*.jou
-*.str
+# Cached project name
+.project-name

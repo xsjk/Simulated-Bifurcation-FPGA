@@ -35,7 +35,7 @@ wire blink_wire;
 assign rst = BTNC;
 assign LED = {6'b111111, blink_wire, stopped};
 
-ps_with_bram_wrapper ps_with_bram_i (
+ps_with_bram ps_with_bram_i (
     .BRAM_addr  (BRAM_addra),
     .BRAM_clk   (BRAM_clka),
     .BRAM_din   (BRAM_dina),
