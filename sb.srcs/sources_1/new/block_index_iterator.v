@@ -17,33 +17,31 @@ module block_index_iterator #(
     output reg [WIDTH-1:0] next_j,
     output reg [IDX_WIDTH-1:0] flat_idx,
     output reg [IDX_WIDTH-1:0] next_flat_idx,
-    output reg initialized,
     output reg [STEP_WIDTH-1:0] step,
     output wire request_stop
 );
 
 assign request_stop = (flat_idx == IDX_MAX) && (step == STEPS - 1);
 
-// Update j, i, initialized, step on clock edge
+// Update j, i, step on clock edge
 always @(posedge clk) begin
     i <= next_i;
     j <= next_j;
     flat_idx <= next_flat_idx;
 
-    if (rst) begin
-        initialized <= 1'b0;
+    if (rst)
         step <= 0;
-    end else begin
-        if (i == N - 1 && j == N - 1) begin
-            initialized <= 1'b1;
-            step <= step + 1;
-        end
-    end
+    else if (i == N - 1 && j == N - 1)
+        step <= step + 1;
 end
 
 // Update next_j, next_i with combinational logic
 always @(*) begin
-    if (rst || flat_idx == IDX_MAX) begin
+    if (rst) begin
+        next_i = 0;
+        next_j = 0;
+        next_flat_idx = 0;
+    end else if (flat_idx == IDX_MAX) begin
         next_i = 0;
         next_j = 0;
         next_flat_idx = 0;

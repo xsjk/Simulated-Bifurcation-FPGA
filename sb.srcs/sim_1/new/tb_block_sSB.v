@@ -70,6 +70,7 @@ block_sSB #(
 
     .BRAM_addr      (BRAM_addr),
     .BRAM_din       (BRAM_din),
+    .BRAM_dout      (),
     .BRAM_en        (BRAM_en),
     .BRAM_we        (BRAM_we)
 );

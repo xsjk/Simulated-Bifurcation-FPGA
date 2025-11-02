@@ -19,7 +19,6 @@ wire [WIDTH-1:0] next_i;
 wire [WIDTH-1:0] next_j;
 wire [FLAT_WIDTH-1:0] flat_idx;
 wire [FLAT_WIDTH-1:0] next_flat_idx;
-wire initialized;
 wire [STEP_WIDTH-1:0] step;
 wire request_stop;
 
@@ -35,7 +34,6 @@ block_index_iterator #(
     .next_j         (next_j),
     .flat_idx       (flat_idx),
     .next_flat_idx  (next_flat_idx),
-    .initialized    (initialized),
     .step           (step),
     .request_stop   (request_stop)
 );
@@ -48,8 +46,8 @@ initial begin
 end
 
 always @(posedge clk) begin
-    $display("Time: %0d, rst: %b, i: %0d, j: %0d, next_i: %0d, next_j: %0d, flat_idx: %0d, next_flat_idx: %0d, initialized: %b, step: %0d, request_stop: %b",
-             $time, rst, i, j, next_i, next_j, flat_idx, next_flat_idx, initialized, step, request_stop);
+    $display("Time: %0d, rst: %b, i: %0d, j: %0d, next_i: %0d, next_j: %0d, flat_idx: %0d, next_flat_idx: %0d, step: %0d, request_stop: %b",
+             $time, rst, i, j, next_i, next_j, flat_idx, next_flat_idx, step, request_stop);
     if (request_stop) begin
         $display("Request to stop");
         $finish;

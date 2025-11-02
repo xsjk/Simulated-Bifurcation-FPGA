@@ -77,27 +77,24 @@ block_index_iterator #(
     .next_j         (next_j),
     .flat_idx       (flat_idx),
     .next_flat_idx  (next_flat_idx),
-    .initialized    (initialized),
     .step           (step),
     .request_stop   (request_stop)
 );
 
 L_mem #(
-    .N                  (N),
     .BLOCK_SIZE         (BLOCK_SIZE),
-    .BLOCK_MUL_WIDTH    (BLOCK_MUL_WIDTH),
-    .MUL_WIDTH          (MUL_WIDTH)
+    .N_BLOCK_PER_ROW    (N_BLOCK_PER_ROW),
+    .DELTA_WIDTH        (BLOCK_MUL_WIDTH),
+    .DATA_WIDTH         (MUL_WIDTH)
 ) L_mem_i (
-    .clk                (clk),
-    .en                 (~rst),
-    .i                  (i),
-    .j                  (j),
-    .next_i             (next_i),
-    .next_j             (next_j),
-    .delta_L_i_packed   (delta_L_i_packed),
-    .delta_L_j_packed   (delta_L_j_packed),
-    .L_i_packed_new     (L_i_packed_new),
-    .L_j_packed_new     (L_j_packed_new)
+    .clk        (clk),
+    .en         (~rst),
+    .i          (i),
+    .j          (j),
+    .delta_i    (delta_L_i_packed),
+    .delta_j    (delta_L_j_packed),
+    .dout_i     (L_i_packed_new),
+    .dout_j     (L_j_packed_new)
 );
 
 initial begin : precompute_tables

@@ -86,57 +86,105 @@ genvar gi;
 // Write index for output BRAM
 reg [WRITE_INDEX_WIDTH-1:0] out_idx;
 
+// Read addr of x_hat_j during writing phase
 reg [BLOCK_IDX_WIDTH-1:0] block_idx;
+
 
 
 // State variables
 reg [1:0] state;
 assign stopped = (state == STOPPED);
-assign running = (state == RUNNING);
 assign initializing = (state == INIT);
-reg block_idx_rst;
-
-// Block Index 
-wire [BLOCK_IDX_WIDTH-1:0] i;
-wire [BLOCK_IDX_WIDTH-1:0] j;
-wire [BLOCK_IDX_WIDTH-1:0] next_i;
-wire [BLOCK_IDX_WIDTH-1:0] next_j;
-reg [BLOCK_IDX_WIDTH-1:0] prev_i;
-reg [BLOCK_IDX_WIDTH-1:0] prev_j;
-
-always @(posedge clk) begin
-    prev_i <= i;
-    prev_j <= j;
-end
+assign running = (state == RUNNING);
+assign writing = (state == WRITE);
 
 localparam BLOCK_FLAT_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW*(N_BLOCK_PER_ROW+1)/2);
-wire [BLOCK_FLAT_IDX_WIDTH-1:0] flat_idx;
-wire [BLOCK_FLAT_IDX_WIDTH-1:0] next_flat_idx;
 
-wire initialized;
-wire [STEP_WIDTH-1:0] step;
+// Block Index 
+localparam MAX_STAGE = 12;
+wire [BLOCK_IDX_WIDTH-1:0] i;
+wire [BLOCK_IDX_WIDTH-1:0] j;
+wire [BLOCK_FLAT_IDX_WIDTH-1:0] flat_idx;
 wire request_stop;
+
+reg [BLOCK_IDX_WIDTH-1:0] stage_i [0:MAX_STAGE];
+reg [BLOCK_IDX_WIDTH-1:0] stage_j [0:MAX_STAGE];
+reg [BLOCK_FLAT_IDX_WIDTH-1:0] stage_flat_idx [0:MAX_STAGE];
+reg stage_is_diagonal [0:MAX_STAGE];
+reg stage_request_stop [0:MAX_STAGE];
+always @(*) begin
+    stage_i[0] = i;
+    stage_j[0] = j;
+    stage_flat_idx[0] = flat_idx;
+    stage_request_stop[0] = request_stop;
+    stage_is_diagonal[0] = (i == j);
+end
+
+
+wire [STEP_WIDTH-1:0] step;
+reg idx_iterator_rst;
 block_index_iterator #(
     .N      (N_BLOCK_PER_ROW),
     .STEPS  (STEPS)
 ) block_index_iterator_i (
     .clk            (clk),
-    .rst            (block_idx_rst),
-    .i              (i),
-    .j              (j),
-    .next_i         (next_i),
-    .next_j         (next_j),
-    .flat_idx       (flat_idx),
-    .next_flat_idx  (next_flat_idx),
-    .initialized    (initialized),
-    .step           (step),
-    .request_stop   (request_stop)
+    .rst            (idx_iterator_rst),
+    .i              (i), // row of the block
+    .j              (j), // col of the block
+    .flat_idx       (flat_idx), // flat index for J memory access
+    .step           (step), // number of iterations completed
+    .request_stop   (request_stop) // signal when step == STEPS
 );
+genvar gs;
+generate
+    for (gs = 0; gs < MAX_STAGE; gs = gs + 1) begin : gen_stage_reg
+        always @(posedge clk) begin
+            stage_i[gs+1] <= stage_i[gs];
+            stage_j[gs+1] <= stage_j[gs];
+            stage_flat_idx[gs+1] <= stage_flat_idx[gs];
+            stage_request_stop[gs+1] <= stage_request_stop[gs];
+            stage_is_diagonal[gs+1] <= stage_is_diagonal[gs];
+        end
+    end
+endgenerate
 
 
-// When should the x_fix_j_packed and y_fix_j_packed and x_hat_j_packed_new be updated?
-wire should_update = initializing || (running && i == N_BLOCK_PER_ROW - 1);
-wire [BLOCK_IDX_WIDTH-1:0] real_block_idx = running ? j : block_idx;
+localparam STAGE_X_LOAD = 2;
+localparam STAGE_Y_LOAD = 2;
+localparam STAGE_X_HAT_LOAD = 2;
+localparam STAGE_J_LOAD = 1; 
+
+localparam STAGE_X_ARRIVE = STAGE_X_LOAD;
+localparam STAGE_Y_ARRIVE = STAGE_Y_LOAD;
+localparam STAGE_X_HAT_ARRIVE = STAGE_X_HAT_LOAD;
+localparam STAGE_J_ARRIVE = STAGE_J_LOAD + 1;
+
+localparam STAGE_G_ARRIVE = STAGE_L_ARRIVE;
+localparam STAGE_G_HAT_ARRIVE = STAGE_G_ARRIVE;
+localparam STAGE_Y_NEXT_ARRIVE = STAGE_Y_ARRIVE; 
+localparam STAGE_Y_HAT_ARRIVE = STAGE_Y_NEXT_ARRIVE;
+localparam STAGE_X_NEXT_ARRIVE = STAGE_Y_HAT_ARRIVE;
+localparam STAGE_X_HAT_NEW_ARRIVE = STAGE_X_NEXT_ARRIVE;
+
+
+// Stage indices for the block index iterator
+// store multi stages of block_idx to handle different storing stage of x_fix, y_fix, x_hat during initialization phase
+reg [BLOCK_IDX_WIDTH-1:0] stage_init_block_idx [STAGE_X_NEXT_ARRIVE:STAGE_X_HAT_NEW_ARRIVE]; 
+always @(*) stage_init_block_idx[STAGE_X_NEXT_ARRIVE] = block_idx;
+generate
+    for (gs = STAGE_X_NEXT_ARRIVE; gs < STAGE_X_HAT_NEW_ARRIVE; gs = gs + 1) begin : gen_stage_block_idx
+        always @(posedge clk) stage_init_block_idx[gs+1] <= stage_init_block_idx[gs];
+    end
+endgenerate
+// store multi stages of block_idx to handle different reading stage of x_hat during writing phase
+reg [BLOCK_IDX_WIDTH-1:0] stage_write_block_idx [STAGE_X_HAT_LOAD:STAGE_X_HAT_NEW_ARRIVE];
+always @(*) stage_write_block_idx[STAGE_X_HAT_LOAD] = block_idx;
+generate
+    for (gs = STAGE_X_HAT_LOAD; gs < STAGE_X_HAT_NEW_ARRIVE; gs = gs + 1) begin : gen_stage_write_block_idx
+        always @(posedge clk) stage_write_block_idx[gs+1] <= stage_write_block_idx[gs];
+    end
+endgenerate
+
 
 
 // Memory for x_fix and y_fix
@@ -148,10 +196,14 @@ lutram_gen #(
     .ADDR_WIDTH (BLOCK_IDX_WIDTH)
 ) x_fix_mem (
     .clk    (clk),
-    .addr   (real_block_idx),
+    .addr   (initializing ? stage_init_block_idx[STAGE_X_NEXT_ARRIVE] : // writes when x_next arrives
+             running ? stage_j[STAGE_X_LOAD] : 
+             0), // unused during writing phase
     .din    (x_fix_j_packed_new),
     .dout   (x_fix_j_packed),
-    .we     (should_update)
+    .we     (initializing ? 1'b1 : // write during initialization
+             running ? stage_i[STAGE_X_LOAD] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
+             1'b0) // disabled during writing phase
 );
 
 wire [0:BLOCK_SIZE*Y_WIDTH-1] y_fix_j_packed;
@@ -162,30 +214,45 @@ lutram_gen #(
     .ADDR_WIDTH (BLOCK_IDX_WIDTH)
 ) y_fix_mem (
     .clk    (clk),
-    .addr   (real_block_idx),
+    .addr   (initializing ? stage_init_block_idx[STAGE_Y_NEXT_ARRIVE] : // writes when x_next arrives
+             running ? stage_j[STAGE_Y_LOAD] : 
+             0), // unused during writing phase
     .din    (y_fix_j_packed_new),
     .dout   (y_fix_j_packed),
-    .we     (should_update)
+    .we     (initializing ? 1'b1 : // always write during initialization
+             running ? stage_i[STAGE_Y_LOAD] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
+             1'b0) // disabled during writing phase
 );
 
 // Memory for x_hat
-wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed; // used for matrix multiplication
-wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed_new; // packed x_hat_i_new
 wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_i_packed; // packed x_hat_i
-dual_lutram_gen #(
-    .WIDTH      (BLOCK_SIZE * X_HAT_WIDTH),
-    .DEPTH      (N_BLOCK_PER_ROW),
-    .ADDR_WIDTH (BLOCK_IDX_WIDTH)
-) x_hat_mem (
+wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed; // packed x_hat_j
+wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_k_packed; // packed x_hat_k
+wire [0:BLOCK_SIZE*X_HAT_WIDTH-1] x_hat_j_packed_new; // packed x_hat_j_new
+if (STAGE_X_HAT_LOAD != STAGE_X_HAT_NEW_ARRIVE) begin
+    $error("Error: Output and input signal stages must match in order to share port a");
+end
+x_hat_mem #(
+    .BLOCK_SIZE         (BLOCK_SIZE),
+    .N_BLOCK_PER_ROW    (N_BLOCK_PER_ROW),
+    .BLOCK_IDX_WIDTH    (BLOCK_IDX_WIDTH),
+    .X_HAT_WIDTH        (X_HAT_WIDTH)
+) x_hat_mem_i (
     .clk    (clk),
-    .addra  (real_block_idx),
-    .dina   (x_hat_j_packed_new),
-    .wea    (should_update),
-    .douta  (x_hat_j_packed),
-    .addrb  (i),
-    .doutb  (x_hat_i_packed)
+    .i      (stage_i[STAGE_X_HAT_LOAD]),
+    .j      (stage_j[STAGE_X_HAT_LOAD]),
+    .k      (initializing ? stage_init_block_idx[STAGE_X_HAT_NEW_ARRIVE] : 
+             running ? stage_j[STAGE_X_HAT_LOAD] : 
+             writing ? stage_write_block_idx[STAGE_X_HAT_LOAD] : 0),
+    .we_k   (initializing ? 1'b1 : // always write during initialization phase
+             running ? stage_i[STAGE_X_HAT_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
+             writing ? 1'b0 : // always read during writing phase
+             1'b0),
+    .dout_i (x_hat_i_packed), // used as input for matrix multiplication
+    .dout_j (x_hat_j_packed), // used as input for matrix multiplication
+    .din_k  (x_hat_j_packed_new), // provided by dynamics update
+    .dout_k (x_hat_k_packed) // used as input during writing phase
 );
-
 
 // Memory for Coefficient Matrix
 wire [0:BLOCK_DATA_WIDTH-1] J_local_ij;
@@ -195,13 +262,18 @@ J_mem #(
     .BLOCK_SIZE     (BLOCK_SIZE)
 ) J_mem_i (
     .clk            (clk),
-    .idx            (next_flat_idx),
-    .lower_block    (J_local_ij), // TODO
+    .idx            (stage_flat_idx[STAGE_J_LOAD]),
+    .lower_block    (J_local_ij),
     .upper_block    (J_local_ji)
 );
 
 
 // Block Matrix multiplication
+if (STAGE_J_ARRIVE != STAGE_X_HAT_ARRIVE) begin
+    $error("Error: Input signal stages of matmul doesnot match");
+end
+localparam STAGE_MATMUL_IN = STAGE_J_ARRIVE;
+
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_i_packed;
 wire [0:BLOCK_SIZE*BLOCK_MUL_WIDTH-1] block_matmul_out_j_packed;
 matmul #(
@@ -211,7 +283,7 @@ matmul #(
 ) matmul_ij (
     .J              (J_local_ij),
     .x              (x_hat_j_packed),
-    .is_diagonal    (i == j),
+    .is_diagonal    (stage_is_diagonal[STAGE_MATMUL_IN]),
     .out            (block_matmul_out_i_packed)
 );
 matmul #(
@@ -221,31 +293,30 @@ matmul #(
 ) matmul_ji (
     .J              (J_local_ji),
     .x              (x_hat_i_packed),
-    .is_diagonal    (i == j),
+    .is_diagonal    (stage_is_diagonal[STAGE_MATMUL_IN]),
     .out            (block_matmul_out_j_packed)
 );
+localparam STAGE_MATMUL_OUT = STAGE_MATMUL_IN;
 
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] L_i_packed; // packed L_i 
 wire [0:BLOCK_SIZE*MUL_WIDTH-1] L_j_packed; // packed L_j
 L_mem #(
-    .N                  (N),
     .BLOCK_SIZE         (BLOCK_SIZE),
     .N_BLOCK_PER_ROW    (N_BLOCK_PER_ROW),
     .BLOCK_IDX_WIDTH    (BLOCK_IDX_WIDTH),
-    .BLOCK_MUL_WIDTH    (BLOCK_MUL_WIDTH),
-    .MUL_WIDTH          (MUL_WIDTH)
+    .DELTA_WIDTH        (BLOCK_MUL_WIDTH),
+    .DATA_WIDTH         (MUL_WIDTH)
 ) L_mem_i (
-    .clk                (clk),
-    .en                 (running),
-    .i                  (i),
-    .j                  (j),
-    .next_i             (next_i),
-    .next_j             (next_j),
-    .delta_L_i_packed   (block_matmul_out_i_packed),
-    .delta_L_j_packed   (block_matmul_out_j_packed),
-    .L_i_packed_new     (L_i_packed),  // unused
-    .L_j_packed_new     (L_j_packed)
+    .clk        (clk),
+    .en         (running),
+    .i          (stage_i[STAGE_MATMUL_OUT]),
+    .j          (stage_j[STAGE_MATMUL_OUT]),
+    .delta_i    (block_matmul_out_i_packed), // provided by matmul
+    .delta_j    (block_matmul_out_j_packed), // provided by matmul
+    .dout_i     (L_i_packed), // unused
+    .dout_j     (L_j_packed)  // used as input for dynamics update
 );
+localparam STAGE_L_ARRIVE = STAGE_MATMUL_OUT;
 
 // unpacked L_j
 wire signed [0:MUL_WIDTH-1] L_j [0:BLOCK_SIZE-1];
@@ -368,6 +439,9 @@ wire [K_N:0] read_end = read_begin + BLOCK_SIZE;
 wire [K_N:0] write_end = write_begin + OUT_BRAM_WIDTH;
 reg signed [LOCAL_IDX_WIDTH:0] read_offset;
 
+localparam X_HAT_J_LATENCY = 0;
+reg [$clog2(X_HAT_J_LATENCY):0] block_loading; // since ENABLE_OUTREG of x_hat_mem may be enabled
+
 initial begin
     state <= STOPPED;
     block_idx <= 0;
@@ -382,13 +456,13 @@ initial begin
     BRAM_en <= 0;
     BRAM_we <= 0;
 
-    block_idx_rst <= 0;
+    idx_iterator_rst <= 0;
 end
 
 integer k;
 always @(posedge clk) begin
 
-    block_idx_rst <= 1'b0;
+    idx_iterator_rst <= 1'b0;
     
     // State machine
     case (state)
@@ -400,17 +474,17 @@ always @(posedge clk) begin
         end
 
         INIT: begin
-            if (block_idx == N_BLOCK_PER_ROW - 1) begin
+            if (stage_init_block_idx[STAGE_X_HAT_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
                 state <= RUNNING;
             end else begin
                 block_idx <= block_idx + 1;
-                block_idx_rst <= 1'b1; 
+                idx_iterator_rst <= 1'b1; 
             end
         end
         
-        RUNNING: begin
+        RUNNING: begin;
 
-            // $display("(i, j) = (%2d, %2d)", i, j);
+            // $display("(i, j) = (%2d, %2d)", stage_i[STAGE_X_HAT_ARRIVE], stage_j[STAGE_X_HAT_ARRIVE]);
 
             // // Display x_hat_j_packed and x_hat_i_packed
             // $write("x_hat_i = [");
@@ -446,39 +520,41 @@ always @(posedge clk) begin
                 
 
             // // Display x_hat
-            // if (j == 0) begin
-            //     if (i == 0) begin
+            // if (stage_j[STAGE_X_HAT_ARRIVE] == 0) begin
+            //     if (stage_i[STAGE_X_HAT_ARRIVE] == 0) begin
             //         $write("x_hat = [");
             //     end
             //     for (k = 0; k < BLOCK_SIZE; k = k + 1)
             //         $write("%2d,", $signed(x_hat_i_packed[k*X_HAT_WIDTH +: X_HAT_WIDTH]));
-            //     if (i == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_i[STAGE_X_HAT_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
             //         $write("]");
             //     end
             //     $write("\n");
             // end
 
             // // Display L
-            // if (i == N_BLOCK_PER_ROW - 1) begin
-            //     if (j == 0) begin
+            // if (stage_i[STAGE_L_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_j[STAGE_L_ARRIVE] == 0) begin
             //         $write("L = [");
             //     end
             //     for (k = 0; k < BLOCK_SIZE; k = k + 1)
             //         $write("%3d,", $signed(L_j[k]));
-            //     if (j == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_j[STAGE_L_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
             //         $write("]");
             //     end
             //     $write("\n");
             // end 
-            
 
-            if (i == N_BLOCK_PER_ROW - 1 && j == N_BLOCK_PER_ROW - 1 && request_stop) begin
+
+            if (stage_request_stop[STAGE_X_HAT_NEW_ARRIVE]) begin
                 state <= WRITE;
                             
                 read_begin <= 0;
                 write_begin <= 0;
                 read_offset <= 0;
+
                 block_idx <= 0;
+                block_loading <= X_HAT_J_LATENCY;
                 out_idx <= 0;
 
                 BRAM_addr <= 0;
@@ -490,59 +566,63 @@ always @(posedge clk) begin
         end
         
         WRITE: begin  
-            
-            // Fetch the sign of x and pack to BRAM_din
-            for (k = 0; k < OUT_BRAM_WIDTH; k = k + 1) begin
-                if (write_begin + k < read_begin) begin
-                    BRAM_din[k] <= BRAM_din[k]; // Keep the previous value
-                end else if (write_begin + k < read_end) begin
-                    BRAM_din[k] <= x_hat_j_packed[(read_offset + k) * X_HAT_WIDTH];
-                end else begin
-                    BRAM_din[k] <= 0; // Fill the rest with zeros
+        
+            if (block_loading > 0) 
+                block_loading <= block_loading - 1;
+            else begin
+
+                // Fetch the sign of x and pack to BRAM_din
+                for (k = 0; k < OUT_BRAM_WIDTH; k = k + 1) begin
+                    if (write_begin + k < read_begin)
+                        BRAM_din[k] <= BRAM_din[k]; // Keep the previous value
+                    else if (write_begin + k < read_end)
+                        BRAM_din[k] <= x_hat_k_packed[(read_offset + k) * X_HAT_WIDTH];
+                    else
+                        BRAM_din[k] <= 0; // Fill the rest with zeros
                 end
-            end
 
-            if (out_idx > WRITE_INDEX_MAX) begin
-                state <= STOPPED; // Stop after writing the last block
-            end
-            
-            // Default values for BRAM
-            BRAM_addr <= out_idx;
-            BRAM_we <= 4'b1111;
-            BRAM_en <= 1;
-
-            if (write_end > read_end) begin
-                /*
-                 *  read:  |<------------------->|
-                 *  write:              |<--------->|
-                 */
-                // Next read block
-                block_idx <= block_idx + 1;
-                read_begin <= read_begin + BLOCK_SIZE;
-                read_offset <= read_offset - BLOCK_SIZE;
-
-                // Don't write to BRAM at this moment, since BRAM_din is not completely filled
-                BRAM_we <= 0;
+                if (out_idx > WRITE_INDEX_MAX) begin
+                    state <= STOPPED; // Stop after writing the last block
+                end
                 
-            end else if (write_begin < read_begin) begin
-                /*
-                 *  read:      |<------------------->|
-                 *  write: |<--------->|
-                 */
-                // Next write index
-                out_idx <= out_idx + 1;
-                write_begin <= write_begin + OUT_BRAM_WIDTH;
-                read_offset <= read_offset + OUT_BRAM_WIDTH;
+                // Default values for BRAM
+                BRAM_addr <= out_idx;
+                BRAM_we <= 4'b1111;
+                BRAM_en <= 1;
 
-            end else begin
-                /*
-                 *  read:  |<------------------->|
-                 *  write:     |<--------->|
-                 */
-                // Next write index
-                out_idx <= out_idx + 1;
-                write_begin <= write_begin + OUT_BRAM_WIDTH;
-                read_offset <= read_offset + OUT_BRAM_WIDTH;
+                if (write_end > read_end) begin
+                    /*
+                    *  read:  |<------------------->|
+                    *  write:              |<--------->|
+                    */
+                    // Next read block
+                    block_idx <= block_idx + 1;
+                    read_begin <= read_begin + BLOCK_SIZE;
+                    read_offset <= read_offset - BLOCK_SIZE;
+
+                    // Don't write to BRAM at this moment, since BRAM_din is not completely filled
+                    BRAM_we <= 0;
+                    
+                end else if (write_begin < read_begin) begin
+                    /*
+                    *  read:      |<------------------->|
+                    *  write: |<--------->|
+                    */
+                    // Next write index
+                    out_idx <= out_idx + 1;
+                    write_begin <= write_begin + OUT_BRAM_WIDTH;
+                    read_offset <= read_offset + OUT_BRAM_WIDTH;
+
+                end else begin
+                    /*
+                    *  read:  |<------------------->|
+                    *  write:     |<--------->|
+                    */
+                    // Next write index
+                    out_idx <= out_idx + 1;
+                    write_begin <= write_begin + OUT_BRAM_WIDTH;
+                    read_offset <= read_offset + OUT_BRAM_WIDTH;
+                end
             end
         end
     endcase
