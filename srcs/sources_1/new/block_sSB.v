@@ -176,6 +176,7 @@ localparam BLOCK_MATMUL_OUTREG = 1;
 localparam X_HAT_REG = 1;
 localparam X_HAT_K_REG = 1;
 localparam L_REG = 1;
+localparam L_STORE_REG = 1;
 localparam X_REG = 1;
 localparam Y_REG = 1;
 localparam G_REG = 1;
@@ -194,7 +195,7 @@ localparam X_HAT_NEW_REG = 1;
 localparam STAGE_J_LOAD = 1; 
 localparam STAGE_X_HAT_LOAD = STAGE_J_LOAD + 1 - X_HAT_REG; 
 localparam STAGE_L_LOAD = STAGE_X_HAT_LOAD + X_HAT_REG + BLOCK_MATMUL_PROGREG + BLOCK_MATMUL_LEVEL1REG + BLOCK_MATMUL_LEVEL2REG + BLOCK_MATMUL_OUTREG;
-localparam STAGE_X_LOAD = STAGE_L_LOAD + L_REG - X_REG;
+localparam STAGE_X_LOAD = STAGE_L_LOAD + L_STORE_REG + L_REG - X_REG;
 localparam STAGE_Y_LOAD = STAGE_X_LOAD + X_REG + G_REG + ENABLE_G_HAT * G_HAT_REG + Y_DELTA_REG - Y_REG;
 initial begin 
     $write("STAGE_J_LOAD: %d\n", STAGE_J_LOAD);
@@ -208,7 +209,7 @@ localparam STAGE_X_ARRIVE = STAGE_X_LOAD + X_REG;
 localparam STAGE_Y_ARRIVE = STAGE_Y_LOAD + Y_REG;
 localparam STAGE_X_HAT_ARRIVE = STAGE_X_HAT_LOAD + X_HAT_REG;
 localparam STAGE_J_ARRIVE = STAGE_J_LOAD + 1; // +1 for BRAM latency
-localparam STAGE_L_ARRIVE = STAGE_L_LOAD + L_REG;
+localparam STAGE_L_ARRIVE = STAGE_L_LOAD + L_STORE_REG + L_REG;
 
 // Block Matrix multiplication
 if (STAGE_J_ARRIVE != STAGE_X_HAT_ARRIVE) begin
@@ -419,6 +420,7 @@ L_mem #(
     .BLOCK_IDX_WIDTH    (BLOCK_IDX_WIDTH),
     .DELTA_WIDTH        (BLOCK_MUL_WIDTH),
     .DATA_WIDTH         (MUL_WIDTH),
+    .ENABLE_STOREREG    (L_STORE_REG),
     .ENABLE_OUTREG      (L_REG)
 ) L_mem_i (
     .clk        (clk),
@@ -714,30 +716,29 @@ always @(posedge clk) begin
 
             // // Display x_hat
             // if (stage_j[STAGE_X_HAT_ARRIVE] == 0) begin
-            //     if (stage_i[STAGE_X_HAT_ARRIVE] == 0) begin
+            //     if (stage_i[STAGE_X_HAT_ARRIVE] == 0)
             //         $write("x_hat = [");
-            //     end
             //     for (k = 0; k < BLOCK_SIZE; k = k + 1)
             //         $write("%2d,", $signed(x_hat_i_packed[k*X_HAT_WIDTH +: X_HAT_WIDTH]));
-            //     if (stage_i[STAGE_X_HAT_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_i[STAGE_X_HAT_ARRIVE] == N_BLOCK_PER_ROW - 1)
             //         $write("]");
-            //     end
             //     $write("\n");
             // end
 
+
             // // Display L
             // if (stage_i[STAGE_L_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
-            //     if (stage_j[STAGE_L_ARRIVE] == 0) begin
+            //     if (stage_j[STAGE_L_ARRIVE] == 0)
             //         $write("L = [");
-            //     end
             //     for (k = 0; k < BLOCK_SIZE; k = k + 1)
             //         $write("%3d,", $signed(L_j[k]));
-            //     if (stage_j[STAGE_L_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_j[STAGE_L_ARRIVE] == N_BLOCK_PER_ROW - 1)
             //         $write("]");
-            //     end
             //     $write("\n");
             // end 
 
+
+            // // Display x_hat_new
             // if (stage_i[STAGE_X_HAT_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
             //     if (stage_j[STAGE_X_HAT_ARRIVE] == 0)
             //         $write("x_hat_new = [");
