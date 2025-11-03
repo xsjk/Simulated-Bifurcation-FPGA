@@ -1,4 +1,6 @@
-#create_clock -period 20.000 -name clock -waveform {0.000 10.000} [get_ports clk]
+# 50 MHz clock
+create_clock -period 20.000 -name clock -waveform {0.000 10.000} [get_ports CLK] 
+set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN Y9} [get_ports CLK]
 
 set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN T22} [get_ports {LED[0]}]
 set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN T21} [get_ports {LED[1]}]
@@ -25,5 +27,5 @@ set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN P16} [get_ports {BTNC}]
 set_property -dict {IOSTANDARD LVCMOS33 PACKAGE_PIN N15} [get_ports {BTNL}]
 
 # Allow loop for ring oscillator
-set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets */calculate_dynamics[*].*/rand_i/rand_raw_i/ros[*].ro/w*]
-
+set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets */calculate_dynamics[*].*/*/rand_raw_i/ros[*].ro/w*]
+set_property ALLOW_COMBINATORIAL_LOOPS TRUE [get_nets */calculate_dynamics[*].*/rand_raw_i/ros[*].ro/w*]

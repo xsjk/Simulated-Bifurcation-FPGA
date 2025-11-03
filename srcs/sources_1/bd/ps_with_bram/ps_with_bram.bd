@@ -1,7 +1,7 @@
 {
   "design": {
     "design_info": {
-      "boundary_crc": "0xCD79070E4134D340",
+      "boundary_crc": "0x3455C49392E7A1B5",
       "device": "xc7z020clg484-1",
       "gen_directory": "../../../../sb.gen/sources_1/bd/ps_with_bram",
       "name": "ps_with_bram",
@@ -81,34 +81,6 @@
             "direction": "O",
             "left": "3",
             "right": "0"
-          }
-        }
-      }
-    },
-    "ports": {
-      "CLK": {
-        "type": "clk",
-        "direction": "O",
-        "parameters": {
-          "CLK_DOMAIN": {
-            "value": "ps_with_bram_processing_system7_0_0_FCLK_CLK0",
-            "value_src": "default_prop"
-          },
-          "FREQ_HZ": {
-            "value": "30303030",
-            "value_src": "user_prop"
-          },
-          "FREQ_TOLERANCE_HZ": {
-            "value": "0",
-            "value_src": "default"
-          },
-          "INSERT_VIP": {
-            "value": "0",
-            "value_src": "default"
-          },
-          "PHASE": {
-            "value": "0.0",
-            "value_src": "default"
           }
         }
       }
@@ -2042,8 +2014,7 @@
           "processing_system7_0/M_AXI_GP0_ACLK",
           "axi_smc/aclk",
           "axi_bram_ctrl_0/s_axi_aclk",
-          "rst_ps7_0_50M/slowest_sync_clk",
-          "CLK"
+          "rst_ps7_0_50M/slowest_sync_clk"
         ]
       },
       "processing_system7_0_FCLK_RESET0_N": {

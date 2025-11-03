@@ -59,7 +59,7 @@
     <Option Name="IPStaticSourceDir" Val="$PIPUSERFILESDIR/ipstatic"/>
     <Option Name="EnableBDX" Val="FALSE"/>
     <Option Name="DSABoardId" Val="zc702"/>
-    <Option Name="WTXSimLaunchSim" Val="939"/>
+    <Option Name="WTXSimLaunchSim" Val="940"/>
     <Option Name="WTModelSimLaunchSim" Val="0"/>
     <Option Name="WTQuestaLaunchSim" Val="0"/>
     <Option Name="WTIesLaunchSim" Val="0"/>
@@ -110,16 +110,6 @@
           <Proxy FileSetName="lutram_unit_dist_mem_gen_0_0"/>
         </CompFileExtendedInfo>
       </File>
-      <File Path="$PSRCDIR/sources_1/bd/J_bram/J_bram.bd">
-        <FileInfo>
-          <Attr Name="UsedIn" Val="synthesis"/>
-          <Attr Name="UsedIn" Val="implementation"/>
-          <Attr Name="UsedIn" Val="simulation"/>
-        </FileInfo>
-        <CompFileExtendedInfo CompFileName="J_bram.bd" FileRelPathName="ip/J_bram_blk_mem_gen_0_0/J_bram_blk_mem_gen_0_0.xci">
-          <Proxy FileSetName="J_bram_blk_mem_gen_0_0"/>
-        </CompFileExtendedInfo>
-      </File>
       <File Path="$PSRCDIR/sources_1/bd/dual_lutram_unit/dual_lutram_unit.bd">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
@@ -128,6 +118,16 @@
         </FileInfo>
         <CompFileExtendedInfo CompFileName="dual_lutram_unit.bd" FileRelPathName="ip/dual_lutram_unit_dist_mem_gen_0_0/dual_lutram_unit_dist_mem_gen_0_0.xci">
           <Proxy FileSetName="dual_lutram_unit_dist_mem_gen_0_0"/>
+        </CompFileExtendedInfo>
+      </File>
+      <File Path="$PSRCDIR/sources_1/bd/J_bram/J_bram.bd">
+        <FileInfo>
+          <Attr Name="UsedIn" Val="synthesis"/>
+          <Attr Name="UsedIn" Val="implementation"/>
+          <Attr Name="UsedIn" Val="simulation"/>
+        </FileInfo>
+        <CompFileExtendedInfo CompFileName="J_bram.bd" FileRelPathName="ip/J_bram_blk_mem_gen_0_0/J_bram_blk_mem_gen_0_0.xci">
+          <Proxy FileSetName="J_bram_blk_mem_gen_0_0"/>
         </CompFileExtendedInfo>
       </File>
       <File Path="$PSRCDIR/sources_1/bd/ps_with_bram/ps_with_bram.bd">

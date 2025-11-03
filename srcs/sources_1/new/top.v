@@ -1,6 +1,7 @@
 `timescale 1ns / 1ps
 
 module top (
+    input wire CLK,
     input wire BTNU,
     input wire BTNR,
     input wire BTND,
@@ -10,7 +11,6 @@ module top (
     output wire [7:0] LED
 );
 
-wire clk;
 wire rst;
 
 wire stopped;
@@ -41,12 +41,11 @@ ps_with_bram ps_with_bram_i (
     .BRAM_din   (BRAM_dina),
     .BRAM_dout  (BRAM_douta),
     .BRAM_en    (BRAM_ena),
-    .BRAM_we    (BRAM_wea),
-    .CLK        (clk)
+    .BRAM_we    (BRAM_wea)
 );
 
 block_sSB block_sSB_i (
-    .clk            (clk),
+    .clk            (CLK),
     .request_start  (rst),
     .stopped        (stopped),
 
@@ -74,7 +73,7 @@ ps_pl_shared_bram ps_pl_shared_bram_i (
 );
 
 blink blink_i (
-    .clk    (clk),
+    .clk    (CLK),
     .rst    (rst),
     .out    (blink_wire)
 );
