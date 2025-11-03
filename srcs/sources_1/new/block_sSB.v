@@ -15,8 +15,9 @@ module block_sSB  #(
     parameter K_G = 3,                          // |g| < 2^(K_G)
     parameter K_ALPHA = 2,                      // |sum(J_ij * x_i)| < 2^(-K_ALPHA) * N
 
-    parameter ENABLE_G_HAT = 1, // Enable stocastic update of g
-    parameter ENABLE_Y_HAT = 1, // Enable stocastic update of y
+    parameter ENABLE_G_HAT = 1, // Enable stocastic quantization of g
+    parameter ENABLE_Y_HAT = 1, // Enable stocastic quantization of y
+    parameter ENABLE_X_HAT = 1, // Enable stocastic quantization of x, otherwise sign bit will be used
 
     parameter BLOCK_MATMUL_LEVEL1 = 12,
     parameter BLOCK_MATMUL_LEVEL2 = 4,
@@ -24,7 +25,10 @@ module block_sSB  #(
     parameter OUT_BRAM_WIDTH = 32,  // Width of output BRAM
     parameter OUT_BRAM_DEPTH = 10,   // Depth of output BRAM
 
-    parameter RANDOM_INIT = 1 // Random initialization of x_fix
+    parameter RANDOM_INIT = 1, // Random initialization of x_fix
+    
+    parameter RANDOM_METHOD = 0 // 0 for ro, 1 for lfsr
+
 )(
     input wire clk,
     input wire request_start,
@@ -264,8 +268,7 @@ if (STAGE_X_NEW_ARRIVE == STAGE_X_LOAD)
     ) x_fix_mem (
         .clk    (clk),
         .addr   (initializing ? stage_init_block_idx[STAGE_X_NEW_ARRIVE] : // writes when x_fix_next arrives
-                 running ? stage_j[STAGE_X_NEW_ARRIVE] : 
-                 0), // unused during writing phase
+                 stage_j[STAGE_X_NEW_ARRIVE]), // read at running phase, undefined during writing phase
         .din    (x_fix_j_packed_new),
         .dout   (x_fix_j_packed),
         .we     (initializing ? 1'b1 : // write during initialization
@@ -281,8 +284,7 @@ else
     ) x_fix_mem (
         .clk    (clk),
         .addra  (initializing ? stage_init_block_idx[STAGE_X_NEW_ARRIVE] : // writes when x_fix_next arrives
-                 running ? stage_j[STAGE_X_NEW_ARRIVE] : 
-                 0), // unused during writing phase
+                 stage_j[STAGE_X_NEW_ARRIVE]), // read at running phase, undefined during writing phase
         .wea    (initializing ? 1'b1 : // write during initialization
                  running ? stage_i[STAGE_X_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
                  1'b0), // disabled during writing phase
@@ -304,8 +306,7 @@ if (STAGE_Y_NEW_ARRIVE == STAGE_Y_LOAD)
     ) y_fix_mem (
         .clk    (clk),
         .addr   (initializing ? stage_init_block_idx[STAGE_Y_NEW_ARRIVE] : // writes when x_fix_next arrives
-                running ? stage_j[STAGE_Y_NEW_ARRIVE] : 
-                0), // unused during writing phase
+                 stage_j[STAGE_Y_NEW_ARRIVE]), // read at running phase, undefined during writing phase
         .din    (y_fix_j_packed_new),
         .dout   (y_fix_j_packed),
         .we     (initializing ? 1'b1 : // always write during initialization
@@ -321,8 +322,7 @@ else
     ) y_fix_mem (
         .clk    (clk),
         .addra  (initializing ? stage_init_block_idx[STAGE_Y_NEW_ARRIVE] : // writes when x_fix_next arrives
-                 running ? stage_j[STAGE_Y_NEW_ARRIVE] : 
-                 0), // unused during writing phase
+                 stage_j[STAGE_Y_NEW_ARRIVE]),  // read at running phase, undefined during writing phase
         .wea    (initializing ? 1'b1 : // always write during initialization
                  running ? stage_i[STAGE_Y_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
                  1'b0), // disabled during writing phase
@@ -352,8 +352,7 @@ x_hat_mem #(
     .j      (stage_j[STAGE_X_HAT_LOAD]),
     .k      (initializing ? stage_init_block_idx[STAGE_X_HAT_NEW_ARRIVE] : 
              running ? stage_j[STAGE_X_HAT_NEW_ARRIVE] : 
-             writing ? block_idx : // during writing phase, read based on block_idx
-             0),
+             block_idx), // during writing phase, read based on block_idx
     .we_k   (initializing ? 1'b1 : // always write during initialization phase
              running ? stage_i[STAGE_X_HAT_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1 : // write only at the last block of the column
              writing ? 1'b0 : // always read during writing phase
@@ -497,7 +496,9 @@ generate
             rand_near #(
                 .WIDTH      (G_WIDTH),
                 .OUT_WIDTH  (G_HAT_WIDTH),
-                .RAND_WIDTH (G_DECIMAL)
+                .RAND_WIDTH (G_DECIMAL),
+                .METHOD     (RANDOM_METHOD),
+                .SEED       (gi+1)
             ) r_g_i (
                 .clk        (clk),
                 .in         (g_fix),
@@ -530,7 +531,9 @@ generate
             rand_near #(
                 .WIDTH      (Y_WIDTH),
                 .OUT_WIDTH  (Y_HAT_WIDTH),
-                .RAND_WIDTH (Y_DECIMAL)
+                .RAND_WIDTH (Y_DECIMAL),
+                .METHOD     (RANDOM_METHOD),
+                .SEED       (gi+1)
             ) r_y_i (
                 .clk        (clk),
                 .in         (y_fix_next),
@@ -592,15 +595,23 @@ generate
 
 
         // x_hat_i_new generation
-        rand_near #(
-            .WIDTH      (X_WIDTH),
-            .OUT_WIDTH  (X_HAT_WIDTH),
-            .RAND_WIDTH (X_DECIMAL)
-        ) r_x_i (
-            .clk        (clk),
-            .in         (x_fix_new),
-            .out        (x_hat_j_new[gi])
-        );
+        if (ENABLE_X_HAT)
+            rand_near #(
+                .WIDTH      (X_WIDTH),
+                .OUT_WIDTH  (X_HAT_WIDTH),
+                .RAND_WIDTH (X_DECIMAL),
+                .METHOD     (RANDOM_METHOD),
+                .SEED       (gi+1)
+            ) r_x_i (
+                .clk        (clk),
+                .in         (x_fix_new),
+                .out        (x_hat_j_new[gi])
+            );
+        else
+            assign x_hat_j_new[gi] = x_fix_new > 0 ? 2'b01 : 
+                                     x_fix_new < 0 ? 2'b11 : 
+                                     2'b00;
+
         reg signed [X_HAT_WIDTH-1:0] x_hat_new;
         if (X_HAT_NEW_REG) always @(posedge clk) x_hat_new <= x_hat_j_new[gi];
         else               always @(*)           x_hat_new = x_hat_j_new[gi];
