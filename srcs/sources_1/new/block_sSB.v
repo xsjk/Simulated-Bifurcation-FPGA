@@ -147,24 +147,26 @@ localparam BLOCK_FLAT_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW*(N_BLOCK_PER_ROW+1)/2);
 localparam MAX_STAGE = N_BLOCK_PER_ROW;
 wire [BLOCK_IDX_WIDTH-1:0] i;
 wire [BLOCK_IDX_WIDTH-1:0] j;
+wire [STEP_WIDTH-1:0] step;
 wire [BLOCK_FLAT_IDX_WIDTH-1:0] flat_idx;
 wire request_stop;
 
 reg [BLOCK_IDX_WIDTH-1:0] stage_i [0:MAX_STAGE];
 reg [BLOCK_IDX_WIDTH-1:0] stage_j [0:MAX_STAGE];
+reg [STEP_WIDTH-1:0] stage_step [0:MAX_STAGE];
 reg [BLOCK_FLAT_IDX_WIDTH-1:0] stage_flat_idx [0:MAX_STAGE];
 reg stage_is_diagonal [0:MAX_STAGE];
 reg stage_request_stop [0:MAX_STAGE];
 always @(*) begin
     stage_i[0] = i;
     stage_j[0] = j;
+    stage_step[0] = step;
     stage_flat_idx[0] = flat_idx;
     stage_request_stop[0] = request_stop;
     stage_is_diagonal[0] = (i == j);
 end
 
 
-wire [STEP_WIDTH-1:0] step;
 reg idx_iterator_rst;
 block_index_iterator #(
     .N      (N_BLOCK_PER_ROW),
@@ -184,6 +186,7 @@ generate
         always @(posedge clk) begin
             stage_i[gs+1] <= stage_i[gs];
             stage_j[gs+1] <= stage_j[gs];
+            stage_step[gs+1] <= stage_step[gs];
             stage_flat_idx[gs+1] <= stage_flat_idx[gs];
             stage_request_stop[gs+1] <= stage_request_stop[gs];
             stage_is_diagonal[gs+1] <= stage_is_diagonal[gs];
@@ -561,7 +564,7 @@ generate
             always @(posedge clk) stage_x_fix[gs+1] <= stage_x_fix[gs];
 
         // g_fix_j calculation
-        wire signed [G_WIDTH-1:0] g_lhs = ($signed({1'b0, step}) - (1 << (G_DECIMAL - K_ETA))) * 
+        wire signed [G_WIDTH-1:0] g_lhs = ($signed({1'b0, stage_step[STAGE_X_ARRIVE]}) - (1 << (G_DECIMAL - K_ETA))) * 
                                           stage_x_fix[STAGE_X_ARRIVE];
         reg signed [G_WIDTH-1:0] g_lhs_reg;
         if (G_LHS_REG) always @(posedge clk) g_lhs_reg <= g_lhs;
@@ -602,7 +605,7 @@ generate
 
         // y_fix_j fetch
         assign y_fix_j[gi] = y_fix_j_packed[gi*Y_WIDTH +: Y_WIDTH];
-        assign y_fix_j_next[gi] = $signed(y_fix_j[gi] + y_delta_reg);
+        assign y_fix_j_next[gi] = y_fix_j[gi] + y_delta_reg;
         reg signed [Y_NEXT_WIDTH-1:0] y_fix_next;
         if (Y_NEXT_REG) always @(posedge clk) y_fix_next <= y_fix_j_next[gi];
         else            always @(*)           y_fix_next = y_fix_j_next[gi];
@@ -639,7 +642,7 @@ generate
         reg signed [X_DELTA_WIDTH-1:0] x_delta_reg;
         if (X_DELTA_REG) always @(posedge clk) x_delta_reg <= x_delta;
         else             always @(*)           x_delta_reg = x_delta;
-        assign x_fix_j_next[gi] = $signed(stage_x_fix[STAGE_X_DELTA_ARRIVE] + x_delta_reg);
+        assign x_fix_j_next[gi] = stage_x_fix[STAGE_X_DELTA_ARRIVE] + x_delta_reg;
         
         reg signed [X_NEXT_WIDTH-1:0] x_fix_next;
         if (X_NEXT_REG) always @(posedge clk) x_fix_next <= x_fix_j_next[gi];
@@ -700,9 +703,8 @@ generate
                 .out        (x_hat_j_new[gi])
             );
         else if (ENABLE_X_SGN)
-            assign x_hat_j_new[gi] = x_fix_new > 0 ? 2'b01 : 
-                                     x_fix_new < 0 ? 2'b11 : 
-                                     2'b00;
+            assign x_hat_j_new[gi] = x_fix_new > 0 ? 1 : 
+                                     x_fix_new < 0 ? -1 : 0;
         else
             $error("Error: Either ENABLE_X_HAT or ENABLE_X_SGN must be enabled for x_hat generation");
 
@@ -817,7 +819,6 @@ always @(posedge clk) begin
             //     $write("\n");
             // end
 
-
             // // Display L
             // if (stage_i[STAGE_L_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
             //     if (stage_j[STAGE_L_ARRIVE] == 0)
@@ -839,6 +840,28 @@ always @(posedge clk) begin
             //     $write("\n");
             //     if (stage_j[STAGE_X_HAT_ARRIVE] == N_BLOCK_PER_ROW - 1)
             //         $write("]\n");
+            // end
+
+            // // Display x_fix_new
+            // if (stage_i[STAGE_X_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_j[STAGE_X_NEW_ARRIVE] == 0)
+            //         $write("x_fix_new = [");
+            //     for (k = 0; k < BLOCK_SIZE; k = k + 1) 
+            //         $write("%3d,", $signed(x_fix_j_packed_new[k*X_WIDTH +: X_WIDTH]));
+            //     if (stage_j[STAGE_X_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1)
+            //         $write("]");
+            //     $write("\n");
+            // end
+
+            // // Display y_fix_new
+            // if (stage_i[STAGE_Y_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1) begin
+            //     if (stage_j[STAGE_Y_NEW_ARRIVE] == 0)
+            //         $write("y_fix_new = [");
+            //     for (k = 0; k < BLOCK_SIZE; k = k + 1) 
+            //         $write("%3d,", $signed(y_fix_j_packed_new[k*Y_WIDTH +: Y_WIDTH]));
+            //     if (stage_j[STAGE_Y_NEW_ARRIVE] == N_BLOCK_PER_ROW - 1)
+            //         $write("]");
+            //     $write("\n");
             // end
 
             if (stage_request_stop[STAGE_X_HAT_NEW_ARRIVE]) begin

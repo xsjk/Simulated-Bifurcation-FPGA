@@ -76,11 +76,13 @@ block_sSB #(
 
     .COUPLE_MODE    (2),
     .UPDATE_MODE_Y  (0),
-    .UPDATE_MODE_X  (1)
+    .UPDATE_MODE_X  (1),
 
     // .COUPLE_MODE    (2),
     // .UPDATE_MODE_Y  (2),
-    // .UPDATE_MODE_X  (2)
+    // .UPDATE_MODE_X  (2),
+
+    .RANDOM_INIT    (1)
 
 ) block_sSB_i (
     .clk            (clk),
