@@ -3,7 +3,7 @@
 module block_sSB  #(
     parameter N = 2000,
     parameter BLOCK_SIZE = 80,
-    parameter STEPS = 50000,
+    parameter STEPS = 250,
         
     parameter K_N = $clog2(N+1),                // Width for N
     parameter K_BLOCK = $clog2(BLOCK_SIZE+1),   // Width for block size
