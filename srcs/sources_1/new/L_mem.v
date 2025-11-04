@@ -78,8 +78,8 @@ generate
         assign L_i[gi] = L_i_packed[gi*DATA_WIDTH +: DATA_WIDTH];
         assign L_j[gi] = L_j_packed[gi*DATA_WIDTH +: DATA_WIDTH];
 
-        wire is_first_col = (stage_j[STAGE_ARRIVE] == 0);
-        wire is_diagonal = (stage_i[STAGE_ARRIVE] == stage_j[STAGE_ARRIVE]);
+        wire is_first_col = stage_j[STAGE_ARRIVE] == 0; // TODO: add register for this signal
+        wire is_diagonal = stage_i[STAGE_ARRIVE] == stage_j[STAGE_ARRIVE]; // TODO: add register for this signal
         assign L_i_new[gi] = stage_en[STAGE_ARRIVE] ? $signed(is_first_col ? delta_L_i[gi] : L_i[gi] + delta_L_i[gi]) : {DATA_WIDTH{1'b0}};
         assign L_j_new[gi] = stage_en[STAGE_ARRIVE] ? $signed(is_diagonal ? L_i_new[gi] : L_j[gi] + delta_L_j[gi]) : {DATA_WIDTH{1'b0}};
         assign L_i_packed_new[gi*DATA_WIDTH +: DATA_WIDTH] = L_i_new[gi];

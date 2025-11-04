@@ -7,18 +7,19 @@ module block_sSB  #(
         
     parameter K_N = $clog2(N+1),                // Width for N
     parameter K_BLOCK = $clog2(BLOCK_SIZE+1),   // Width for block size
-    parameter K_BETA = 14,                      // beta = 2^(-K_BETA)
+    parameter K_BETA = 8,                      // beta = 2^(-K_BETA)
     parameter K_XI = 6,                         // xi = 2^(-K_XI)
-    parameter K_ETA = 1,                        // eta = 2^(-K_ETA)
+    parameter K_ETA = 0,                        // eta = 2^(-K_ETA)
     parameter K_X = 1,                          // |x| < 2^(K_X)
     parameter K_Y = 3,                          // |y| < 2^(K_Y)
     parameter K_G = 3,                          // |g| < 2^(K_G)
     parameter K_ALPHA = 2,                      // |sum(J_ij * x_i)| < 2^(-K_ALPHA) * N
 
-    parameter ENABLE_G_HAT = 1, // Enable stocastic quantization of g
-    parameter ENABLE_Y_HAT = 1, // Enable stocastic quantization of y
-    parameter ENABLE_X_HAT = 1, // Enable stocastic quantization of x, otherwise sign bit will be used
-
+    // Quantization mode
+    parameter COUPLE_MODE = 2,      // the mode to calculate J @ x
+    parameter UPDATE_MODE_Y = 0,    // the mode to update y += eta * g
+    parameter UPDATE_MODE_X = 1,    // the mode to update x += eta * y
+    
     parameter BLOCK_MATMUL_LEVEL1 = 12,
     parameter BLOCK_MATMUL_LEVEL2 = 4,
 
@@ -43,25 +44,51 @@ module block_sSB  #(
 
 assign BRAM_clk = clk;
 
-if (2*K_ETA + K_BETA < K_XI) begin
+if (2*K_ETA + K_BETA < K_XI)
     $error("2*K_ETA + K_BETA (%d) must be greater than or equal to K_XI (%d)", 2*K_ETA + K_BETA, K_XI);
-end
 
-if (OUT_BRAM_DEPTH < WRITE_INDEX_WIDTH) begin
+if (OUT_BRAM_DEPTH < WRITE_INDEX_WIDTH)
     $error("OUT_BRAM_DEPTH (%d) must be greater than or equal to WRITE_INDEX_WIDTH (%d)", OUT_BRAM_DEPTH, WRITE_INDEX_WIDTH);
-end
 
-if (K_X != 1) begin
+if (K_X != 1)
     $error("K_X (%d) must be equal to 1 since x is always in the range [-1, 1]", K_X);
-end
 
-if (OUT_BRAM_DEPTH < $clog2((N-1)/OUT_BRAM_WIDTH+1)) begin
+if (OUT_BRAM_DEPTH < $clog2((N-1)/OUT_BRAM_WIDTH+1))
     $error("OUT_BRAM_DEPTH (%d) is not sufficient for N (%d) bits.", OUT_BRAM_DEPTH, N);
-end
 
-if (BLOCK_SIZE < OUT_BRAM_WIDTH) begin
+if (BLOCK_SIZE < OUT_BRAM_WIDTH)
     $error("BLOCK_SIZE (%d) must be greater than or equal to OUT_BRAM_WIDTH (%d)", BLOCK_SIZE, OUT_BRAM_WIDTH);
-end
+
+if (!(0 <= UPDATE_MODE_X <= 2))
+    $error("UPDATE_MODE_X (%d) must be DEFAULT/SIGN/RANDOM (0/1/2)", UPDATE_MODE_X);
+
+if (!(0 <= UPDATE_MODE_Y <= 2))
+    $error("UPDATE_MODE_Y (%d) must be DEFAULT/SIGN/RANDOM (0/1/2)", UPDATE_MODE_Y);
+
+if (!(1 <= COUPLE_MODE <= 2))
+    $error("COUPLE_MODE (%d) must be in SIGN/RANDOM (1/2)", COUPLE_MODE);
+
+
+// State definitions 
+localparam STOPPED = 0;
+localparam INIT = 1;
+localparam RUNNING = 2;
+localparam WRITE = 3;
+
+
+// Quantization schemes enums
+localparam DEFAULT = 0; // no quantization, e.g. y += eta * g
+localparam SIGN = 1; // use signed quantization, e.g. y += eta * sign(g)
+localparam RANDOM = 2; // use random quantization, e.g. y += eta * g_hat
+
+localparam ENABLE_G_HAT = UPDATE_MODE_Y == RANDOM;
+localparam ENABLE_Y_HAT = UPDATE_MODE_X == RANDOM;
+localparam ENABLE_X_HAT = COUPLE_MODE == RANDOM; // sSB
+
+localparam ENABLE_G_SGN = UPDATE_MODE_Y == SIGN;
+localparam ENABLE_Y_SGN = UPDATE_MODE_X == SIGN;
+localparam ENABLE_X_SGN = COUPLE_MODE == SIGN; // dSB
+
 
 // Derived parameters
 localparam N_BLOCK_PER_ROW = N / BLOCK_SIZE; // Number of blocks per row
@@ -70,8 +97,8 @@ localparam BLOCK_MUL_WIDTH = 1 + K_BLOCK; // Width for sum(J_ij * x_i) on block 
 localparam MUL_WIDTH = 1 + K_N - K_ALPHA; // Width for sum(J_ij * x_i)
 
 localparam G_DECIMAL = 2*K_ETA + K_BETA;
-localparam Y_DECIMAL = ENABLE_G_HAT ? K_ETA : G_DECIMAL + K_ETA;
-localparam X_DECIMAL = ENABLE_Y_HAT ? K_ETA : Y_DECIMAL + K_ETA;
+localparam Y_DECIMAL = UPDATE_MODE_Y == DEFAULT ? G_DECIMAL + K_ETA : K_ETA;
+localparam X_DECIMAL = UPDATE_MODE_X == DEFAULT ? Y_DECIMAL + K_ETA : K_ETA;
 localparam X_WIDTH = 1 + K_X + X_DECIMAL;   // Width for x
 localparam Y_WIDTH = 1 + K_Y + Y_DECIMAL;   // Width for y
 localparam G_WIDTH = 1 + K_G + G_DECIMAL;   // Width for g
@@ -79,10 +106,14 @@ localparam X_HAT_WIDTH = 1 + K_X;           // Width for x_hat
 localparam Y_HAT_WIDTH = 1 + K_Y;           // Width for y_hat
 localparam G_HAT_WIDTH = 1 + K_G;           // Width for g_hat
 localparam X_ABS_MAX = 1 << X_DECIMAL; // Maximum absolute value for x
-localparam X_NEXT_WIDTH = 1 + ((X_WIDTH > X_DELTA_WIDTH) ? X_WIDTH : X_DELTA_WIDTH); // Width for x + eta y
-localparam Y_NEXT_WIDTH = 1 + ((Y_WIDTH > Y_DELTA_WIDTH) ? Y_WIDTH : Y_DELTA_WIDTH); // Width for y + eta g
-localparam X_DELTA_WIDTH = ENABLE_Y_HAT ? Y_HAT_WIDTH : Y_NEXT_WIDTH;
-localparam Y_DELTA_WIDTH = ENABLE_G_HAT ? G_HAT_WIDTH : G_WIDTH;
+localparam Y_DELTA_WIDTH = UPDATE_MODE_Y == DEFAULT ? G_WIDTH :
+                           UPDATE_MODE_Y == RANDOM  ? G_HAT_WIDTH : 
+                           UPDATE_MODE_Y == SIGN ? 2 : 0;
+localparam Y_NEXT_WIDTH = 1 + ((Y_WIDTH > Y_DELTA_WIDTH) ? Y_WIDTH : Y_DELTA_WIDTH);
+localparam X_DELTA_WIDTH = UPDATE_MODE_X == DEFAULT ? Y_NEXT_WIDTH :
+                           UPDATE_MODE_X == RANDOM  ? Y_HAT_WIDTH : 
+                           UPDATE_MODE_X == SIGN ? 2 : 0;
+localparam X_NEXT_WIDTH = 1 + ((X_WIDTH > X_DELTA_WIDTH) ? X_WIDTH : X_DELTA_WIDTH);
 
 localparam BLOCK_IDX_WIDTH = $clog2(N_BLOCK_PER_ROW);    // Width for block indices
 localparam BLOCK_DATA_WIDTH = BLOCK_SIZE * BLOCK_SIZE;   // Width for flattened block data
@@ -91,13 +122,6 @@ localparam STEP_WIDTH = $clog2(STEPS);                   // Width for step
 
 localparam WRITE_INDEX_MAX = (N-1)/OUT_BRAM_WIDTH;          // Maximum number of write indices
 localparam WRITE_INDEX_WIDTH = $clog2(WRITE_INDEX_MAX+1);   // Width for write index
-
-
-// State definitions 
-localparam STOPPED = 0;
-localparam INIT = 1;
-localparam RUNNING = 2;
-localparam WRITE = 3;
 
 genvar gi;
 
@@ -167,34 +191,35 @@ generate
     end
 endgenerate
 
+// Reg enables for block matrix multiplication 
+localparam BLOCK_MATMUL_PROGREG     = 1;
+localparam BLOCK_MATMUL_LEVEL1REG   = 1;
+localparam BLOCK_MATMUL_LEVEL2REG   = 1;
+localparam BLOCK_MATMUL_OUTREG      = 1;
 
-localparam BLOCK_MATMUL_PROGREG = 1;
-localparam BLOCK_MATMUL_LEVEL1REG = 1;
-localparam BLOCK_MATMUL_LEVEL2REG = 1;
-localparam BLOCK_MATMUL_OUTREG = 1;
-
-localparam J_ADDR_REG = 1;
-localparam X_HAT_REG = 1;
-localparam X_HAT_K_REG = 1;
-localparam X_HAT_K_ADDR_REG = 1;
-localparam L_REG = 1;
-localparam L_STORE_REG = 1;
-localparam X_REG = 1;
-localparam Y_REG = 1;
-localparam G_LHS_REG = 1;
-localparam G_REG = 1;
-localparam G_HAT_REG = 1;
-localparam Y_DELTA_REG = 1;
-localparam Y_NEXT_REG = 1;
-localparam Y_WRITE_ADDR_REG = 1;
-localparam Y_HAT_REG = 1;
-localparam X_DELTA_REG = 1;
-localparam X_NEXT_REG = 1;
-localparam X_WRITE_ADDR_REG = 1;
-localparam OOB_REG = 1;
-localparam Y_NEW_REG = 1;
-localparam X_NEW_REG = 1;
-localparam X_HAT_NEW_REG = 1;
+// Reg enables for various signals
+localparam J_ADDR_REG               = 1;
+localparam X_HAT_REG                = 1;
+localparam X_HAT_K_REG              = 1;
+localparam X_HAT_K_ADDR_REG         = 1;
+localparam L_REG                    = 1;
+localparam L_STORE_REG              = 1;
+localparam X_REG                    = 1;
+localparam Y_REG                    = 1;
+localparam G_LHS_REG                = 1;
+localparam G_REG                    = 1;
+localparam G_HAT_REG                = 1;
+localparam Y_DELTA_REG              = 1;
+localparam Y_NEXT_REG               = 1;
+localparam Y_WRITE_ADDR_REG         = 1;
+localparam Y_HAT_REG                = 1;
+localparam X_DELTA_REG              = 1;
+localparam X_NEXT_REG               = 1;
+localparam X_WRITE_ADDR_REG         = 1;
+localparam OOB_REG                  = 1;
+localparam Y_NEW_REG                = 1;
+localparam X_NEW_REG                = 1;
+localparam X_HAT_NEW_REG            = 1;
 
 // Input stages
 localparam STAGE_J_LOAD = 1; 
@@ -562,14 +587,20 @@ generate
         if (G_HAT_REG) always @(posedge clk) g_hat <= g_hat_j[gi];
         else           always @(*)           g_hat = g_hat_j[gi];
 
-        // y_delta 
-        reg signed [Y_DELTA_WIDTH-1:0] y_delta;
-        if (Y_DELTA_REG) always @(posedge clk) y_delta <= ENABLE_G_HAT ? g_hat : g_fix;
-        else             always @(*)           y_delta = ENABLE_G_HAT ? g_hat : g_fix;
+
+        // g_sgn calculation
+        wire signed [1:0] g_sgn = g_fix > 0 ? 1 : g_fix < 0 ? -1 : 0; // TODO verify 
+
+        // y_delta
+        wire signed [Y_DELTA_WIDTH-1:0] y_delta = ENABLE_G_HAT ? g_hat : 
+                                                  ENABLE_G_SGN ? g_sgn : g_fix;
+        reg signed [Y_DELTA_WIDTH-1:0] y_delta_reg;
+        if (Y_DELTA_REG) always @(posedge clk) y_delta_reg <= y_delta;
+        else             always @(*)           y_delta_reg = y_delta;
 
         // y_fix_j fetch
         assign y_fix_j[gi] = y_fix_j_packed[gi*Y_WIDTH +: Y_WIDTH];
-        assign y_fix_j_next[gi] = $signed(y_fix_j[gi] + y_delta);
+        assign y_fix_j_next[gi] = $signed(y_fix_j[gi] + y_delta_reg);
         reg signed [Y_NEXT_WIDTH-1:0] y_fix_next;
         if (Y_NEXT_REG) always @(posedge clk) y_fix_next <= y_fix_j_next[gi];
         else            always @(*)           y_fix_next = y_fix_j_next[gi];
@@ -597,12 +628,17 @@ generate
         if (Y_HAT_REG) always @(posedge clk) y_hat <= y_hat_j[gi];
         else           always @(*)           y_hat = y_hat_j[gi];
         
+        // y_fix_next_sgn calculation
+        wire signed [1:0] y_fix_next_sgn = y_fix_next > 0 ? 1 : y_fix_next < 0 ? -1 : 0; // TODO verify
 
         // x_delta
-        reg signed [X_DELTA_WIDTH-1:0] x_delta;
-        if (X_DELTA_REG) always @(posedge clk) x_delta <= ENABLE_Y_HAT ? y_hat : y_fix_next;
-        else             always @(*)           x_delta = ENABLE_Y_HAT ? y_hat : y_fix_next;
-        assign x_fix_j_next[gi] = $signed(stage_x_fix[STAGE_X_DELTA_ARRIVE] + x_delta);
+        wire signed [X_DELTA_WIDTH-1:0] x_delta = ENABLE_Y_HAT ? y_hat : 
+                                                  ENABLE_Y_SGN ? y_fix_next_sgn : y_fix_next;
+        reg signed [X_DELTA_WIDTH-1:0] x_delta_reg;
+        if (X_DELTA_REG) always @(posedge clk) x_delta_reg <= x_delta;
+        else             always @(*)           x_delta_reg = x_delta;
+        assign x_fix_j_next[gi] = $signed(stage_x_fix[STAGE_X_DELTA_ARRIVE] + x_delta_reg);
+        
         reg signed [X_NEXT_WIDTH-1:0] x_fix_next;
         if (X_NEXT_REG) always @(posedge clk) x_fix_next <= x_fix_j_next[gi];
         else            always @(*)           x_fix_next = x_fix_j_next[gi];
@@ -661,10 +697,12 @@ generate
                 .in         (x_fix_new),
                 .out        (x_hat_j_new[gi])
             );
-        else
+        else if (ENABLE_X_SGN)
             assign x_hat_j_new[gi] = x_fix_new > 0 ? 2'b01 : 
                                      x_fix_new < 0 ? 2'b11 : 
                                      2'b00;
+        else
+            $error("Error: Either ENABLE_X_HAT or ENABLE_X_SGN must be enabled for x_hat generation");
 
         reg signed [X_HAT_WIDTH-1:0] x_hat_new;
         if (X_HAT_NEW_REG) always @(posedge clk) x_hat_new <= x_hat_j_new[gi];
