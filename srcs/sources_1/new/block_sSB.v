@@ -199,6 +199,7 @@ localparam BLOCK_MATMUL_OUTREG      = 1;
 
 // Reg enables for various signals
 localparam J_ADDR_REG               = 1;
+localparam J_REG                    = 1;
 localparam X_HAT_REG                = 1;
 localparam X_HAT_K_REG              = 1;
 localparam X_HAT_K_ADDR_REG         = 1;
@@ -223,7 +224,7 @@ localparam X_HAT_NEW_REG            = 1;
 
 // Input stages
 localparam STAGE_J_LOAD = 1; 
-localparam STAGE_X_HAT_LOAD = STAGE_J_LOAD + J_ADDR_REG + 1 - X_HAT_REG; 
+localparam STAGE_X_HAT_LOAD = STAGE_J_LOAD + J_ADDR_REG + 1 + J_REG - X_HAT_REG; 
 localparam STAGE_L_LOAD = STAGE_X_HAT_LOAD + X_HAT_REG + BLOCK_MATMUL_PROGREG + BLOCK_MATMUL_LEVEL1REG + BLOCK_MATMUL_LEVEL2REG + BLOCK_MATMUL_OUTREG;
 localparam STAGE_X_LOAD = STAGE_L_LOAD + L_STORE_REG + L_REG - G_LHS_REG - X_REG;
 localparam STAGE_Y_LOAD = STAGE_X_LOAD + X_REG + G_LHS_REG + G_REG + ENABLE_G_HAT * G_HAT_REG + Y_DELTA_REG - Y_REG;
@@ -238,7 +239,7 @@ end
 localparam STAGE_X_ARRIVE = STAGE_X_LOAD + X_REG;
 localparam STAGE_Y_ARRIVE = STAGE_Y_LOAD + Y_REG;
 localparam STAGE_X_HAT_ARRIVE = STAGE_X_HAT_LOAD + X_HAT_REG;
-localparam STAGE_J_ARRIVE = STAGE_J_LOAD + J_ADDR_REG + 1; // +1 for BRAM latency
+localparam STAGE_J_ARRIVE = STAGE_J_LOAD + J_ADDR_REG + 1 + J_REG; // +1 for BRAM latency
 localparam STAGE_L_ARRIVE = STAGE_L_LOAD + L_STORE_REG + L_REG;
 
 // Block Matrix multiplication
@@ -443,7 +444,8 @@ if (J_ADDR_REG) always @(posedge clk) J_addr_reg <= J_addr;
 else            always @(*) J_addr_reg = J_addr;
 J_mem #(
     .N              (N),
-    .BLOCK_SIZE     (BLOCK_SIZE)
+    .BLOCK_SIZE     (BLOCK_SIZE),
+    .ENABLE_OUTREG  (J_REG)
 ) J_mem_i (
     .clk            (clk),
     .idx            (J_addr_reg),
