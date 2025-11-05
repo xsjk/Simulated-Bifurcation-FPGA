@@ -10,6 +10,10 @@ if [ ! -f "$XPR_FILE" ]; then
   exit 1
 fi
 
+# Replace the Path attribute in the <Project> tag
 sed -E -i 's#(<Project[^>]*[[:space:]]Path=")[^"]*(")#\1'"$TARGET_PATH"'\2#' "$XPR_FILE"
 echo "[OK] Normalized xpr file path to: $TARGET_PATH"
 
+# Replace "$PPRDIR/../srcs" with "$PSRCDIR"
+sed -E -i 's#(<File[[:space:]]+Path=")\$PPRDIR/../srcs/#\1\$PSRCDIR/#g' "$XPR_FILE"
+echo "[OK] Normalized xpr file srcs path to: \$PSRCDIR"

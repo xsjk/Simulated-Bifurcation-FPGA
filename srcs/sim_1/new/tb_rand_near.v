@@ -3,7 +3,6 @@
 module tb_rand_near;
 
 reg clk;
-reg rst;
 reg [2:0] din;
 wire [1:0] dout;
 
@@ -12,23 +11,20 @@ rand_near #(
     .RAND_WIDTH (1)
 ) rand_near_i (
     .clk    (clk),
-    .rst    (rst),
-    .din    (din),
-    .dout   (dout)
+    .in     (din),
+    .out    (dout)
 );
 
 integer i;
 initial begin
     clk = 0;
     din = 0;
-    rst = 1;
     #10;
-    rst = 0;
 
-    din = 3'b111;
+    din = 3'b011;
     for (i = 0; i < 10; i = i + 1) begin
         #10;
-        $display("Output when din = 111: %b", dout);
+        $display("Output when din = 011: %b", dout);
     end
 
     din = 3'b000;

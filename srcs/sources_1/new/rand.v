@@ -5,7 +5,8 @@ module rand #(
     parameter STAGE = 3,
     parameter ENABLE_REG = 1,
     parameter ENABLE_HASH = 1,
-    parameter ENABLE_XOR = 1
+    parameter ENABLE_XOR = 1,
+    parameter SEED = 0
 )(
     input wire clk,
     output wire [WIDTH-1:0] out
@@ -41,7 +42,7 @@ end
 wire [WIDTH-1:0] ro_out_xored;
 
 if (ENABLE_XOR) begin
-    reg [WIDTH-1:0] xor_out;
+    reg [WIDTH-1:0] xor_out = SEED;
     always @(posedge clk) xor_out <= xor_out ^ ro_out_hashed;
     assign ro_out_xored = xor_out;
 end else begin

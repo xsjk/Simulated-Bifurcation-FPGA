@@ -40,13 +40,22 @@ ps_pl_shared_bram ps_pl_shared_bram_i (
 
 // Instantiate the block_sSB module
 block_sSB #(
-    .STEPS   (50),
+    
+    .STEPS   (20),
     .K_BETA  (1),
     .K_XI    (0),
-    .K_ETA   (1),
+    .K_ETA   (0),
     .K_X     (1),
-    .K_Y     (8),
-    .K_G     (9)
+    .K_Y     (9),
+    .K_G     (8),
+
+    // .STEPS   (50),
+    // .K_BETA  (1),
+    // .K_XI    (0),
+    // .K_ETA   (1),
+    // .K_X     (1),
+    // .K_Y     (8),
+    // .K_G     (9),
 
     // .STEPS   (1000),
     // .K_BETA  (9),
@@ -54,7 +63,7 @@ block_sSB #(
     // .K_ETA   (1),
     // .K_X     (1),
     // .K_Y     (3),
-    // .K_G     (3)
+    // .K_G     (3),
     
     // .STEPS   (150),
     // .K_BETA  (6),
@@ -62,7 +71,19 @@ block_sSB #(
     // .K_ETA   (1),
     // .K_X     (1),
     // .K_Y     (3),
-    // .K_G     (3)
+    // .K_G     (3),
+
+
+    .COUPLE_MODE    (2),
+    .UPDATE_MODE_Y  (0),
+    .UPDATE_MODE_X  (1),
+
+    // .COUPLE_MODE    (2),
+    // .UPDATE_MODE_Y  (2),
+    // .UPDATE_MODE_X  (2),
+
+    .RANDOM_INIT    (1)
+
 ) block_sSB_i (
     .clk            (clk),
     .request_start  (request_start),

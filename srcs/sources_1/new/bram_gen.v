@@ -38,7 +38,7 @@ end
 
 genvar i;
 generate
-    for (i = 0; i < N_UNITS; i = i + 1) begin : gen_bram_units
+    for (i = 0; i < N_UNITS; i = i + 1) begin : gen_units
         // Connect addresses directly
         assign addras[i] = addra;
         assign addrbs[i] = addrb;
