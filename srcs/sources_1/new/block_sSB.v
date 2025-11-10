@@ -7,7 +7,7 @@ module block_sSB  #(
         
     parameter K_N = $clog2(N+1),                // Width for N
     parameter K_BLOCK = $clog2(BLOCK_SIZE+1),   // Width for block size
-    parameter K_BETA = 8,                      // beta = 2^(-K_BETA)
+    parameter K_BETA = 8,                       // beta = 2^(-K_BETA)
     parameter K_XI = 6,                         // xi = 2^(-K_XI)
     parameter K_ETA = 0,                        // eta = 2^(-K_ETA)
     parameter K_X = 1,                          // |x| < 2^(K_X)
@@ -232,11 +232,11 @@ localparam STAGE_L_LOAD = STAGE_X_HAT_LOAD + X_HAT_REG + BLOCK_MATMUL_PROGREG + 
 localparam STAGE_X_LOAD = STAGE_L_LOAD + L_STORE_REG + L_REG - G_LHS_REG - X_REG;
 localparam STAGE_Y_LOAD = STAGE_X_LOAD + X_REG + G_LHS_REG + G_REG + ENABLE_G_HAT * G_HAT_REG + Y_DELTA_REG - Y_REG;
 initial begin 
-    $write("STAGE_J_LOAD: %d\n", STAGE_J_LOAD);
-    $write("STAGE_X_HAT_LOAD: %d\n", STAGE_X_HAT_LOAD);
-    $write("STAGE_L_LOAD: %d\n", STAGE_L_LOAD);
-    $write("STAGE_X_LOAD: %d\n", STAGE_X_LOAD);
-    $write("STAGE_Y_LOAD: %d\n", STAGE_Y_LOAD);
+    $write("STAGE_J_LOAD: %1d\n", STAGE_J_LOAD);
+    $write("STAGE_X_HAT_LOAD: %1d\n", STAGE_X_HAT_LOAD);
+    $write("STAGE_L_LOAD: %1d\n", STAGE_L_LOAD);
+    $write("STAGE_X_LOAD: %1d\n", STAGE_X_LOAD);
+    $write("STAGE_Y_LOAD: %1d\n", STAGE_Y_LOAD);
 end
 
 localparam STAGE_X_ARRIVE = STAGE_X_LOAD + X_REG;

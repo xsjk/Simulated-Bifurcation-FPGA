@@ -1,23 +1,13 @@
 import os
-from io import BytesIO
 from math import ceil
-from urllib.request import urlopen
 
-import numpy as np
-
-url = "https://media.githubusercontent.com/media/xsjk/Simulated-Bifurcation/refs/heads/main/data/k2000.npy"
-with urlopen(url) as resp:
-    J = -np.load(BytesIO(resp.read()))
-
-
-def pm1_to_bits(arr: np.ndarray) -> str:
-    return "".join("0" if x > 0 else "1" for x in arr)
-
-
-N = 2000
-BLOCK_SIZE = 80
+from data import J, N
+from utils import pm1_to_bits
 
 assert J.shape == (N, N)
+
+BLOCK_SIZE = 80
+assert N % BLOCK_SIZE == 0
 
 BRAM_UNIT_PORT_WIDTH = 36  # This is the maximum port width of a RAMB36E1
 BRAM_UNIT_DEPTH = 1024  # The depth of BRAM unit is 1024 when width is 36

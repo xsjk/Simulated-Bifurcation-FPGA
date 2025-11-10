@@ -1,4 +1,4 @@
-SHELL := bash
+SHELL := /usr/bin/env bash
 
 # Read PROJECT_NAME from .project-name if it exists and not overridden
 PROJECT_NAME_FILE := .project-name
